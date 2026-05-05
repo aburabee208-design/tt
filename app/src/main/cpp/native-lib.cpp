@@ -1,0 +1,12034 @@
+#include <arpa/inet.h>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <dirent.h>
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <jni.h>
+#include <mutex>
+#include <netinet/in.h>
+#include <map>
+#include <string>
+#include <sys/socket.h>
+#include <thread>
+#include <time.h>
+#include <unistd.h>
+#include <vector>
+#include <dlfcn.h>
+typedef int (*DobbyHook_fn)(void *address, void *replace_call, void **origin_call);
+static DobbyHook_fn DobbyHook = nullptr;
+static const uint8_t ENC_DOBBY_LIB[]  = {0x0B,0x7B,0x64,0xB3,0xD5,0x32,0x3C,0xFB,0x38,0xDB,0xC5}; 
+static const uint8_t ENC_DOBBY_HOOK[] = {0x4A,0xAB,0x64,0xC3,0x45,0x43,0x24,0x2A,0xC5};             
+static const uint8_t ENC_WAIT_KEY[] = {0xE2,0x3B,0x0C,0x32,0xC5,0x52,0x64,0x24,0x7E,0xBB,0xBE,0x32,0x04,0x38,0xBB,0xC8,0x59,0x94}; 
+static const uint8_t ENC_FMT_EXPIRED[] = {0x72,0xE4,0xF2,0xAC,0x8E,0x7B,0x6F}; 
+static const uint8_t ENC_FMT_POWER[] = {0xEA,0xAB,0xDB,0xCB,0x8D,0xF1,0x0A,0x1C,0x38,0xDD,0x1D}; 
+static const uint8_t ENC_FMT_SPIN[] = {0x02,0xA3,0x0C,0x62,0x4B,0x00,0x72,0x54,0x9F,0x63,0xCF,0x32,0x76,0xD6,0x91,0x0B}; 
+static const uint8_t ENC_FMT_DIR[] = {0x4A,0x7B,0xE3,0x04,0x1C,0x78,0xDA,0xB5,0x7E,0xB5,0x2F,0x2A,0x3E,0xF6,0x32,0xD8,0xE8,0xFC,0x5F,0xA3,0x23}; 
+static const uint8_t ENC_VERSION_URL[] = {0x2B,0x83,0xD3,0x52,0x75,0xF1,0x22,0x2C,0x8D,0x2B,0xA6,0x97,0x74,0x70,0x3A,0xCA,0x59,0xCE,0x45,0x6D,0x1D,0x7D,0xBB,0x5E,0x31,0x8A,0xEE,0xDB,0x3B,0x71,0xAE,0x26,0x2E};
+static const uint8_t ENC_VERSION_PREFIX[] = {0x5A,0x3B,0xDB,0xEB,0xB5,0x7A,0xBC,0x09,0xCE,0x4C,0x8D,0xFE,0xB7};
+static const uint8_t ENC_APP_VERSION[] = {0x15,0x51,0xE1};
+static const uint8_t ENC_BUILDV[] = {0x9C,0x9B,0x0C,0x72,0x3E,0x00,0x9C}; 
+static const uint8_t ENC_TURRET[] = {0x6D,0xC3,0x72,0xD4,0xBD,0xFB,0xBC,0xB3,0x16,0xF3,0x57,0xA9}; 
+static const uint8_t ENC_UPDATE_TITLE[] = {0xF2,0xA3,0x54,0xEB,0xBD,0x7A,0x0A,0xB2,0x16,0xAB,0x75,0x08,0xDD,0x38,0x02};
+static const uint8_t ENC_UPDATE_MSG_FMT[] = {0xD2,0xAB,0xAB,0x42,0x1C,0x93,0x74,0xB3,0x85,0x6B,0xC5,0xE7,0xAE,0xD8,0x6A,0x39,0x43,0x7D,0xAD,0xD2,0xEB,0x8E,0x5B,0xF6,0x49,0xA8,0x71,0xBD,0x6B,0xF6,0xD7,0xE6,0xA3,0x83,0x51,0x5C,0x13,0x0E,0x19,0xAB,0x21,0x22,0x2E,0xCB,0xF8,0xE8,0x11,0xAC,0x1A,0xDC,0x26,0x8E};
+static const uint8_t ENC_UPDATE_DL_BTN[] = {0xF2,0xA3,0x54,0xEB,0xBD,0x7A};
+static const uint8_t ENC_UPDATE_NOTE[] = {0xCA,0x63,0x0C,0x5A,0x1C,0x62,0xD4,0x3A,0x2E,0xBB,0x05,0x32,0x44,0x18,0x72,0xCA,0x43,0x65,0x4F,0x25,0xCB,0xEC,0x43,0xAE,0x13,0xA3,0x08,0x92,0x3C,0x96,0x3F,0x48};
+static const uint8_t ENC_VER_FMT_OK[] = {0xFB,0x19,0xFB,0xD5,0x1C,0x36,0xA9,0x88};
+static const uint8_t ENC_VER_FMT_OLD[] = {0xFB,0x19,0xFB,0xD5,0x1C,0x36,0x7E,0x20,0x08,0xCC,0xAD,0x17,0x55,0x81,0x19,0x39,0x9A,0xFC,0xA5};
+static const uint8_t ENC_TSVAULT[] = {0x25,0x51,0xD3,0x5A,0xAD,0x1A,0xF4,0x42,0xED};
+static const uint8_t ENC_IL2CPP_STR_NEW[] = {0x53,0x43,0xE1,0xDB,0x9D,0x83,0xA7,0x8B,0xED,0xC3,0xD5,0xE7,0x64,0x4E,0x72,0x03,0x82};
+static const uint8_t ENC_LIBSYSTEM[] = {0x0B,0x7B,0x64,0x5A,0x45,0x8B,0xEC,0x1A,0xD5,0xA5,0xA6,0xFF};
+static const uint8_t ENC_REQUIRES_KEY[] = {0x1A,0x1B,0xCB,0x4A,0xC5,0xB3,0x74,0x8B,0x08,0x2B,0x2F,0x18,0x74,0x59};
+static const uint8_t ENC_OVERLAY_CLASS[] = {0x84,0xAB,0xEB,0x7C,0x16,0xAA,0x24,0xEA,0x2E,0x4B,0xC7,0x20,0x14,0xF0,0x1A,0x2B,0x13,0x4D,0x15,0x1B,0x42,0x36,0x13,0xF6,0x63,0xEB,0x59,0xC2,0x24,0x9E,0x47,0xD6,0xDD,0x8A,0x88,0x44,0xC3};
+static const uint8_t ENC_CLIPBOARD_CLASS[] = {0x84,0xAB,0xEB,0x7C,0x16,0xAA,0x24,0xEA,0x2E,0x4B,0xC7,0x20,0x14,0xF0,0x1A,0x2B,0x13,0x4D,0x15,0x1B,0xFA,0x4E,0x7B,0x96,0xAC,0xB3,0xC9,0x8A,0x94,0x66,0x00,0x4E,0xAD,0x7A,0xE8,0x9D,0xEB,0xB5,0x50};
+static const uint8_t ENC_RXPERM[] = {0x1B,0x59,0xB3,0x52};
+static const uint8_t ENC_TAKE_SHOT[] = {0xCA,0x3B,0x3C,0xCB,0x1C,0x88,0xCC,0x2A,0xED}; 
+static const uint8_t ENC_AUTO_AIM[] = {0x93,0x9B,0xD3,0x7A}; 
+static const uint8_t ENC_FAST[]     = {0x7A,0x3B,0xFB,0x32}; 
+static const uint8_t ENC_POWER_MODE[] = {0xEA,0xAB,0xDB,0xCB,0x8D}; 
+static const uint8_t ENC_CANCELLED[] = {0x83,0x3B,0x04,0xDB,0x26,0xA2,0x2C,0x1A,0x6E}; 
+static const uint8_t ENC_SELECT_MODE[] = {0x02,0x1B,0x14,0xCB,0xF5,0xE3,0x0A,0x3A,0x08,0x8B,0xC5,0x10,0x74}; 
+static const uint8_t ENC_NOT_TRICKSHOT[] = {0x3A,0xAB,0xD3,0xD5,0xC5,0x52,0x0A,0x83,0x9D,0x6B,0x25,0x18,0xAE,0xE8,0x22,0xF2,0x8A}; 
+static const uint8_t ENC_DIRECTION_LABEL[] = {0x4A,0x7B,0xE3,0xCB,0xF5,0xE3,0xD4,0x2A,0x3E}; 
+static const uint8_t ENC_REFINE[]   = {0x1A,0x1B,0x44,0xAB,0xED,0x7A}; 
+static const uint8_t ENC_AGG_REFINE[] = {0x93,0x6B,0x5C,0xD5,0x8E,0x7A,0x1C,0x7A,0x3E,0x4B}; 
+static const uint8_t ENC_AGG_REFINING[] = {0x93,0x6B,0x5C,0xD5,0x8E,0x7A,0x1C,0x7A,0x3E,0x6B,0xDD,0x38,0x3E,0xD6,0x70}; 
+static const uint8_t ENC_AGG_SPIN[] = {0x93,0x6B,0x5C,0xD5,0x76,0x83,0xD4,0x52}; 
+static const uint8_t ENC_AGG_CTR_IN[] = {0x83,0x83,0xE3,0x9D,0xC6,0x52}; 
+static const uint8_t ENC_AGG_MID[]    = {0x32,0x7B,0x54};                 
+static const uint8_t ENC_AGG_OUTER[]  = {0x22,0x9B,0xD3,0xCB,0x8D};       
+static const uint8_t ENC_AGG_DEPTH[]  = {0x4A,0x1B,0xF3,0x32,0xDD};       
+static const uint8_t ENC_CLIMB[]      = {0x83,0x43,0x0C,0x8B,0x0E};       
+static const uint8_t ENC_P_CLIMB[]    = {0x45,0x0C,0x14,0xAB,0xE5,0x32};  
+static const uint8_t ENC_PP_CLIMB[]   = {0x45,0x49,0x7B,0x72,0xC5,0xBA,0x3C}; 
+static const uint8_t ENC_PP_SPIN[]    = {0x45,0x49,0xFA,0x52,0xC5,0x52};  
+static const uint8_t ENC_P_SPIN[]     = {0x45,0x8C,0xF3,0xAB,0xED};       
+static const uint8_t ENC_REFINING[] = {0x1A,0x1B,0x44,0xAB,0xED,0x5A,0xDC,0xEA,0x38,0xA5,0xDF}; 
+static const uint8_t ENC_NO_IMPROVEMENT[] = {0x3A,0xAB,0x72,0xAB,0xE5,0x83,0xBC,0x2A,0xFD,0x4B,0xB5,0x28,0x3C,0x80}; 
+static const uint8_t ENC_IMPROVED[] = {0x52,0x5B,0xF3,0x42,0xD5,0x93,0x74,0x02,0x30}; 
+static const uint8_t ENC_RESTORE[] = {0x1A,0x1B,0xFB,0x32,0xD5,0xB3,0x74}; 
+static const uint8_t ENC_CLEAN[] = {0x83,0x43,0x2C,0xEB,0xED}; 
+static const uint8_t ENC_NO_RESTORE_SHOT[] = {0x3A,0xAB,0x72,0x5A,0x06,0x93,0x74,0x02,0x08,0xDB,0xED,0xFF,0xCD}; 
+static const uint8_t ENC_RESTORED[] = {0x1A,0x1B,0xFB,0x32,0xD5,0xB3,0x74,0x02}; 
+static const uint8_t ENC_CLEANED[] = {0x83,0x43,0x2C,0xEB,0xED,0x7A,0x6C}; 
+static const uint8_t ENC_SMART[] = {0x02,0x5B,0x4C,0x42,0xBD}; 
+static const uint8_t ENC_SAVED[] = {0x02,0x3B,0xC3,0xCB,0x3E}; 
+static const uint8_t ENC_NO_SAVED_SHOTS[] = {0x3A,0xAB,0x72,0x5A,0x06,0x93,0x74,0x02,0x08,0xDB,0xED,0xFF,0xCD,0xE8}; 
+static const uint8_t ENC_SEARCHING[] = {0x02,0x1B,0x4C,0x42,0xF5,0x42,0xD4,0x52,0x66,0xA5,0xDF,0xE1}; 
+static const uint8_t ENC_SMART_DONE_FMT[] = {0x9B,0x1B,0xFB,0x32,0x4B,0x00,0x72,0x54,0x4F,0x63}; 
+static const uint8_t ENC_SAVED_TITLE_FMT[] = {0x02,0x3B,0xC3,0xCB,0x3E,0x00,0x87,0x62,0x26,0xF3,0xA6,0x32,0x6E,0x3E,0x02,0xE0}; 
+static const uint8_t ENC_SAVED_EMPTY[] = {0x3A,0xAB,0x72,0x5A,0x06,0x93,0x74,0x02,0x08,0xDB,0xED,0xFF,0xCD,0xE8,0xE0,0x62,0x33,0x65}; 
+static const uint8_t ENC_SAVED_ENTRY_FMT[] = {0x86,0x19,0x54,0xD5,0x1C,0x63,0xD4,0xB3,0x5F,0x55,0xF7,0xE1,0xD7,0x10,0xE0,0x39,0x69,0x6D,0xBD,0xE3,0xF5,0x34,0x15,0x68,0x8C,0x61,0xEB}; 
+static const uint8_t ENC_SAVED_CLOSE[] = {0x83,0x43,0x1C,0x5A,0x26}; 
+static const uint8_t ENC_SAVED_DELETE[] = {0x4A,0x1B,0x14,0xCB,0xBD,0x7A}; 
+static const uint8_t ENC_SMART_SHOTS_FILE[] = {0x03,0x5B,0x4C,0x42,0xBD,0x2B,0x84,0x62,0x26,0xF3,0xA6,0xE1,0x44,0xE8,0xB3}; 
+static const uint8_t ENC_EXPORT[] = {0x72,0xE3,0xF3,0x7A,0x8D,0xE3}; 
+static const uint8_t ENC_IMPORT[] = {0x52,0x5B,0xF3,0x7A,0x8D,0xE3}; 
+static const uint8_t ENC_NO_SAVED_EXPORT[] = {0x3A,0xAB,0x72,0x5A,0x06,0x93,0x74,0x02,0x08,0xDB,0xED,0xFF,0xCD,0xE8,0xE0,0x9A,0x43,0xC4,0x15,0xF5,0x73,0x46,0x33,0x76}; 
+static const uint8_t ENC_SAVED_SHOTS_LABEL[] = {0x03,0x3B,0xC3,0xCB,0x3E,0x2B,0x84,0x62,0x26,0xF3,0xA6}; 
+static const uint8_t ENC_FMT_EXPORTED_SHOTS[] = {0x72,0xE3,0xF3,0x7A,0x8D,0xE3,0x74,0x02,0x08,0x4D,0x0D,0x32,0xC5,0x20,0x4A,0x9A,0x62}; 
+static const uint8_t ENC_EXPORT_FAILED[] = {0x72,0xE3,0xF3,0x7A,0x8D,0xE3,0x0A,0x12,0x36,0x6B,0xCD,0x28,0x4C}; 
+static const uint8_t ENC_CLIPBOARD_EMPTY[] = {0x83,0x43,0x0C,0x52,0x0E,0xAA,0x14,0xB3,0x6E,0x55,0xD5,0xDF,0xAE,0x38,0x5A,0xBA,0x8A,0x1D}; 
+static const uint8_t ENC_FMT_IMPORTED_SHOTS_SKIPPED[] = {0x52,0x5B,0xF3,0x7A,0x8D,0xE3,0x74,0x02,0x08,0x4D,0x0D,0x32,0xC5,0x20,0x4A,0x9A,0x62,0xC4,0x8F,0x2B,0xD3,0xEC,0x0B,0xBE,0x43,0xDB,0x70,0x42,0x94,0x31}; 
+static const uint8_t ENC_FMT_IMPORTED_SHOTS[] = {0x52,0x5B,0xF3,0x7A,0x8D,0xE3,0x74,0x02,0x08,0x4D,0x0D,0x32,0xC5,0x20,0x4A,0x9A,0x62}; 
+static const uint8_t ENC_ALL_IMPORTED_EXIST[] = {0x93,0x43,0x14,0xD5,0xC5,0xBA,0x8C,0x2A,0x9D,0xF3,0xF5,0x10,0xAE,0xE8,0x22,0xF2,0x8A,0x4D,0x4F,0x0D,0x13,0x7D,0x5B,0xEE,0x7B,0x04,0xF3,0x42,0x74,0x37,0xD7,0x7E}; 
+static const uint8_t ENC_NO_VALID_SHOTS[] = {0x3A,0xAB,0x72,0x22,0x06,0xA2,0xD4,0x02,0x08,0xDB,0xED,0xFF,0xCD,0xE8,0xE0,0x0B,0x43,0x7D,0x5D,0xD2}; 
+static const uint8_t ENC_CLIP_TEXT[] = {0xCB,0x1B,0xB3,0x32}; 
+static const uint8_t ENC_CFG_KEY_MASKED[] = {0xBD,0x76,0xD1,0x0E,0xAB,0x63,0xFC,0x27,0x44,0x92,0x39,0xEA,0x10,0x85,0xCF,0x58};
+static const uint8_t CFG_KEY_MASK = 0x5A;
+static const uint8_t ENC_CFG_ALPHABET[] = {0xE2,0xE9,0xF3,0x73,0xE5,0xB1,0xCF,0x93,0xEE,0xAB,0xE4,0x89,0x5D,0xA0,0x92,0xB2,0xD1,0x75,0xFC,0xC2,0x55,0x0F,0x0B,0x48,0x4A,0xEB,0xB1,0x52,0xEB,0x96,0xC5,0xD7,0xBD,0x0A,0xA0,0xAF,0xEA,0xED,0x6F,0xB9,0xC4,0xE3,0x10,0x64,0xE9,0x30,0xA9,0xB4,0x87,0xC4,0x05,0x40,0x1B,0xBA,0x28,0xF8,0x33,0xA4,0x57,0x97,0xDD,0x9F,0x16,0xFF};
+static std::string decryptStr(const uint8_t *data, int len);
+static const uint8_t ENC_PROC_SELF_MAPS[] = {0x25, 0xA3, 0xE3, 0x7A, 0xF5, 0xA8, 0x84, 0x1A, 0x2E, 0x63, 0xC7, 0xEF, 0x54, 0xE0, 0x6A};
+static const uint8_t ENC_PROC_PREFIX[]    = {0x25, 0xA3, 0xE3, 0x7A, 0xF5, 0xA8};
+static const uint8_t ENC_DOT_SO[]         = {0x3D, 0x8B, 0x1C};
+static std::string procSelfMaps() {
+  return decryptStr(ENC_PROC_SELF_MAPS, sizeof(ENC_PROC_SELF_MAPS));
+}
+static std::string procPidPath(const char *suffix) {
+  char p[64];
+  std::string base = decryptStr(ENC_PROC_PREFIX, sizeof(ENC_PROC_PREFIX));
+  snprintf(p, sizeof(p), "%s%d/%s", base.c_str(), getpid(), suffix);
+  return std::string(p);
+}
+static jobject powerTextView = nullptr;
+static jobject spinTextView = nullptr;
+static jobject directionTextView = nullptr;
+static jobject overlayView = nullptr;
+static jobject contentContainer = nullptr;
+static jobject alphaTextView = nullptr;
+static jobject separatorView = nullptr; 
+static jobject dashButton = nullptr;
+static bool isCollapsed = false;
+static int lineAlpha = 191;   
+static int lineAlphaPct = 75; 
+static JavaVM *javaVM = nullptr;
+static std::mutex g_uiTextMutex;
+static std::string g_pendingPowerText;
+static std::string g_pendingSpinText;
+static std::string g_pendingDirText;
+static std::string g_pendingAlphaText;
+static std::string g_pendingPreviewPowerText;
+static std::string g_pendingTimerText;
+static jint g_pendingTimerColor = 0;
+static bool g_dirtyPower = false;
+static bool g_dirtySpin  = false;
+static bool g_dirtyDir   = false;
+static bool g_dirtyAlpha = false;
+static bool g_dirtyPreviewPower = false;
+static bool g_dirtyTimer = false;
+static bool g_dirtyTimerColor = false;
+static jobject g_timerTextView = nullptr;
+static time_t g_expiryTime = 0;
+static bool g_timerThreadRunning = false;
+static bool g_predictionLinesEnabled = false;
+static jobject g_predToggleView = nullptr;
+static bool g_previewLineEnabled = false;
+static jobject g_previewToggleView = nullptr;
+static float previewPowerPct = 50.0f; 
+static std::atomic<bool> g_takeShot{false}; 
+static std::atomic<bool> g_refreshPreview{false}; 
+static float previewStepPct = 0.1f; 
+#ifdef ADVANCED_CONTROLS
+static jobject g_stepBtn1 = nullptr, g_stepBtn01 = nullptr, g_stepBtn001 = nullptr, g_stepBtn0001 = nullptr;
+#endif
+static float dirStepDeg = 1.0f; 
+static std::atomic<bool> g_rotateCue{false}; 
+static float g_rotateDelta = 0.0f; 
+static jobject dirAngleTextView = nullptr; 
+#ifdef ADVANCED_CONTROLS
+static jobject g_dirStepBtn1 = nullptr, g_dirStepBtn01 = nullptr, g_dirStepBtn001 = nullptr, g_dirStepBtn0001 = nullptr;
+#endif
+#ifdef ADVANCED_CONTROLS
+static std::atomic<bool> g_autoAimStart{false};  
+static std::atomic<bool> g_autoAimActive{false}; 
+static int   g_autoAimPhase = 0;       
+static float g_autoAimBestDist = 1e9f; 
+static float g_autoAimDir = 1.0f;      
+static bool  g_autoAimWaitSim = false;  
+static bool  g_autoAimTriedReverse = false; 
+static bool  g_autoAimIsPowerMode = false;  
+static int   g_autoAimWorseCount = 0;       
+static bool  g_autoAimComboMode = false;     
+static float g_autoAimCycleStartDist = 1e9f; 
+static const int COMBO_NEIGHBOR_DIR[8] = {-1,  0, +1, -1, +1, -1,  0, +1};
+static const int COMBO_NEIGHBOR_PWR[8] = {-1, -1, -1,  0,  0, +1, +1, +1};
+static int   g_comboNeighborIdx      = 0;     
+static float g_comboCenterPower      = 50.0f; 
+static float g_comboCenterDist       = 1e9f;  
+static float g_comboBestNeighborDist = 1e9f;  
+static int   g_comboBestNeighborDir  = 0;     
+static int   g_comboBestNeighborPwr  = 0;     
+static std::atomic<bool> g_spinSearchStart{false};   
+static std::atomic<bool> g_spinSearchActive{false};  
+static int   g_spinSearchPhase            = 0;       
+static int   g_spinSearchNeighborIdx      = 0;       
+static float g_spinSearchBestDist         = 1e9f;    
+static float g_spinSearchCenterDist       = 1e9f;    
+static float g_spinSearchCenterX          = 0.0f;    
+static float g_spinSearchCenterY          = 0.0f;    
+static int   g_spinSearchBestNeighborX    = 0;       
+static int   g_spinSearchBestNeighborY    = 0;       
+static const int SPIN_NEIGHBOR_X[8] = {-1,  0, +1, -1, +1, -1,  0, +1};
+static const int SPIN_NEIGHBOR_Y[8] = {-1, -1, -1,  0,  0, +1, +1, +1};
+struct SpinSearchShotState {
+  float dirX = 0.0f;
+  float dirZ = 0.0f;
+  float powerPct = 50.0f;
+  float spinX = 0.0f;
+  float spinY = 0.0f;
+  float dist = 1e9f;
+  bool targetMoved = false;
+};
+static void armRestoreEnforceWatchdog(const SpinSearchShotState &target);
+static bool  g_spinSearchWaitingRetune    = false;
+static SpinSearchShotState g_spinSearchCenterShot{};
+static SpinSearchShotState g_spinSearchRoundBestShot{};
+static std::atomic<bool> g_spinComboRetuneActive{false};
+static bool  g_spinComboRetuneHasResult = false;
+static int   g_spinComboRetunePhase = 0;
+static int   g_spinComboRetuneNeighborIdx = 0;
+static float g_spinComboRetuneBestDist = 1e9f;
+static float g_spinComboRetuneCenterPower = 50.0f;
+static float g_spinComboRetuneCenterDist = 1e9f;
+static float g_spinComboRetuneBestNeighborDist = 1e9f;
+static int   g_spinComboRetuneBestNeighborDir = 0;
+static int   g_spinComboRetuneBestNeighborPwr = 0;
+static SpinSearchShotState g_spinComboRetuneCenterShot{};
+static SpinSearchShotState g_spinComboRetuneRoundBestShot{};
+static SpinSearchShotState g_spinComboRetuneResultShot{};
+static int   g_spinComboRetuneRoundCap = 0;
+static int   g_spinComboRetuneRoundCount = 0;
+static std::atomic<bool> g_aggressiveSpinStart{false};
+static std::atomic<bool> g_aggressiveSpinActive{false};
+static std::atomic<bool> g_aggSpinCancelRequested{false};
+static constexpr int AGGRESSIVE_SPIN_MAX_SEEDS = 26;
+static constexpr int AGGRESSIVE_SPIN_STAGE_SEED_SCAN = 0;
+static constexpr int AGGRESSIVE_SPIN_STAGE_LOCAL_COUPLED = 1;
+static constexpr int AGGRESSIVE_SPIN_SEED_PHASE_RAW_SCAN = 0;
+static constexpr int AGGRESSIVE_SPIN_SEED_PHASE_SHAKE = 1;
+static constexpr int AGGRESSIVE_SPIN_SEED_PHASE_RETUNE = 2;
+static int   g_aggressiveSpinStage = AGGRESSIVE_SPIN_STAGE_SEED_SCAN;
+static int   g_aggressiveSpinSeedPhase = AGGRESSIVE_SPIN_SEED_PHASE_RAW_SCAN;
+static int   g_aggressiveSpinSeedCount = 0;
+static int   g_aggressiveSpinSeedIndex = 0;
+static float g_aggressiveSpinSeedX[AGGRESSIVE_SPIN_MAX_SEEDS] = {};
+static float g_aggressiveSpinSeedY[AGGRESSIVE_SPIN_MAX_SEEDS] = {};
+static SpinSearchShotState g_aggressiveSpinRawSeedShots[AGGRESSIVE_SPIN_MAX_SEEDS] = {};
+static SpinSearchShotState g_aggressiveSpinShakenSeedShots[AGGRESSIVE_SPIN_MAX_SEEDS] = {};
+static int   g_aggressiveSpinPromotedSeedOrder[AGGRESSIVE_SPIN_MAX_SEEDS] = {};
+static int   g_aggressiveSpinPromotedSeedCount = 0;
+static int   g_aggressiveSpinPromotedSeedIndex = 0;
+static int   g_aggressiveSpinRetuneSeedOrder[AGGRESSIVE_SPIN_MAX_SEEDS] = {};
+static int   g_aggressiveSpinRetuneSeedCount = 0;
+static int   g_aggressiveSpinRetuneSeedIndex = 0;
+static bool  g_aggressiveSpinSeedPrepared = false;
+static bool  g_aggressiveSpinRetuneStarted = false;
+static int   g_aggressiveSpinRefineIdx = 0;
+static int   g_aggressiveSpinLocalPhase = 0;
+static int   g_aggressiveSpinLocalNeighborIdx = 0;
+static bool  g_aggSpinEnableCenterInner = true;
+static bool  g_aggSpinEnableMid = false;
+static bool  g_aggSpinEnableOuter = false;
+static int   g_aggSpinDepthCap = 3;
+static int   g_aggSpinClimbMode = 0;
+static int   g_aggSpinPSpinMode = 0;
+static SpinSearchShotState g_aggressiveSpinBaseShot{};
+static SpinSearchShotState g_aggressiveSpinBestShot{};
+static SpinSearchShotState g_aggressiveSpinCommittedShot{};
+static bool  g_aggressiveSpinHasCommittedShot = false;
+static SpinSearchShotState g_aggressiveSpinCurrentSeedShot{};
+static SpinSearchShotState g_aggressiveSpinCurrentShakeBestShot{};
+static SpinSearchShotState g_aggressiveSpinLocalCenterShot{};
+static SpinSearchShotState g_aggressiveSpinLocalRoundBestShot{};
+static SpinSearchShotState g_aggSpinTriageBestRetuned{};   
+static SpinSearchShotState g_aggSpinTriageBestCandidate{}; 
+static SpinSearchShotState g_aggSpinTriageCurrentCandidate{}; 
+static bool  g_aggSpinTriageHasBest = false;   
+static bool  g_aggSpinTriageActive  = false;   
+static bool  g_aggSpinWinnerPending = false;   
+static bool  g_aggSpinWinnerStarted = false;   
+static jobject g_aggSpinToggleCI = nullptr;
+static jobject g_aggSpinToggleMid = nullptr;
+static jobject g_aggSpinToggleOuter = nullptr;
+static jobject g_aggSpinDepthBtn3 = nullptr;
+static jobject g_aggSpinDepthBtn4 = nullptr;
+static jobject g_aggSpinDepthBtn5 = nullptr;
+static jobject g_aggSpinDepthBtn6 = nullptr;
+static jobject g_aggSpinClimbBtn  = nullptr;
+static jobject g_aggSpinPPSpinBtn = nullptr;
+static std::atomic<bool> g_refineStart{false};
+static std::atomic<bool> g_refineActive{false};
+static int   g_refineIdx          = 0;
+static float g_refineBestDist     = 1e9f;
+static float g_refineBestDirDelta = 0.0f;
+static float g_refineBestPwrDelta = 0.0f;
+static float g_refineBasePower    = 50.0f;
+static const float REFINE_RING_DIR[16] = {
+    0.0f,  0.5f,  0.5f,  0.5f,  0.0f, -0.5f, -0.5f, -0.5f,
+    0.0f,  1.0f,  1.0f,  1.0f,  0.0f, -1.0f, -1.0f, -1.0f};
+static const float REFINE_RING_PWR[16] = {
+    0.5f,  0.5f,  0.0f, -0.5f, -0.5f, -0.5f,  0.0f,  0.5f,
+    1.0f,  1.0f,  0.0f, -1.0f, -1.0f, -1.0f,  0.0f,  1.0f};
+static const int   REFINE_RING_COUNT = 16;
+static const float REFINE_DIR_SHAKES[] = {-5.0f, -2.0f, -1.0f, -0.5f, 0.5f, 1.0f, 2.0f, 5.0f};
+static const float REFINE_PWR_SHAKES[] = {-5.0f, -2.0f, -1.0f, -0.5f, 0.5f, 1.0f, 2.0f, 5.0f};
+static const int   REFINE_DIR_COUNT    = 8;
+static const int   REFINE_PWR_COUNT    = 8;
+static const float AGG_LIGHT_DIR_SHAKES[] = {-2.0f, -0.5f, 0.5f, 2.0f};
+static const float AGG_LIGHT_PWR_SHAKES[] = {-2.0f, -0.5f, 0.5f, 2.0f};
+static const int   AGG_LIGHT_SHAKE_COUNT = 4;
+static std::atomic<bool> g_aggRefineStart{false};
+static std::atomic<bool> g_aggRefineActive{false};
+static int   g_aggRefineIdx          = 0;
+static float g_aggRefineBestDist     = 1e9f;
+static float g_aggRefineBestDirDelta = 0.0f;
+static float g_aggRefineBestPwrDelta = 0.0f;
+static float g_aggRefineBasePower    = 50.0f;
+static const float AGG_REFINE_RING_DIR[32] = {
+    0.0f,   0.25f,  0.25f,  0.25f,  0.0f, -0.25f, -0.25f, -0.25f,
+    0.0f,   0.5f,   0.5f,   0.5f,   0.0f, -0.5f,  -0.5f,  -0.5f,
+    0.0f,   0.75f,  0.75f,  0.75f,  0.0f, -0.75f, -0.75f, -0.75f,
+    0.0f,   1.0f,   1.0f,   1.0f,   0.0f, -1.0f,  -1.0f,  -1.0f};
+static const float AGG_REFINE_RING_PWR[32] = {
+    0.25f,  0.25f,  0.0f, -0.25f, -0.25f, -0.25f,  0.0f,  0.25f,
+    0.5f,   0.5f,   0.0f, -0.5f,  -0.5f,  -0.5f,   0.0f,  0.5f,
+    0.75f,  0.75f,  0.0f, -0.75f, -0.75f, -0.75f,  0.0f,  0.75f,
+    1.0f,   1.0f,   0.0f, -1.0f,  -1.0f,  -1.0f,   0.0f,  1.0f};
+static const int   AGG_REFINE_RING_COUNT = 32;
+static constexpr float AGG_SPIN_COMMIT_DIR_TOLERANCE_DEG = 0.10f;
+static constexpr float AGG_SPIN_COMMIT_POWER_TOLERANCE = 1e-3f;
+static constexpr float AGG_SPIN_COMMIT_SPIN_TOLERANCE = 1e-3f;
+static std::atomic<bool> g_refineVerifyPending{false};
+static float g_refineSnapDirX   = 0.0f; 
+static float g_refineSnapDirZ   = 0.0f; 
+static float g_refineSnapPower  = 50.0f; 
+static float g_refineSnapDist   = 1e9f;  
+static float autoAimStepDeg(int phase) {
+  if (phase == 0) return 1.0f;    
+  if (phase == 1) return 0.1f;    
+  if (phase == 2) return 0.01f;   
+  if (phase == 3) return 0.001f;  
+  if (phase == 4) return 0.0001f; 
+  if (phase == 5) return 0.00001f; 
+  return 0.000001f;                
+}
+static float autoAimStepPct(int phase) {
+  if (phase == 0) return 1.0f;    
+  if (phase == 1) return 0.1f;    
+  if (phase == 2) return 0.01f;   
+  if (phase == 3) return 0.001f;  
+  if (phase == 4) return 0.0001f; 
+  if (phase == 5) return 0.00001f; 
+  return 0.000001f;                
+}
+static float spinSearchStep(int phase) {
+  if (phase == 0) return 1.0f;
+  if (phase == 1) return 0.1f;
+  if (phase == 2) return 0.01f;
+  if (phase == 3) return 0.001f;
+  if (phase == 4) return 0.0001f;
+  if (phase == 5) return 0.00001f;
+  return 0.000001f;
+}
+static float clampSpinValue(float value) {
+  if (value < -1.0f) return -1.0f;
+  if (value > 1.0f) return 1.0f;
+  return value;
+}
+static void normalizeSpinToUnitDisk(float *spinX, float *spinY) {
+  if (!spinX || !spinY)
+    return;
+  float x = clampSpinValue(*spinX);
+  float y = clampSpinValue(*spinY);
+  float radiusSq = x * x + y * y;
+  if (radiusSq > 1.0f) {
+    float invRadius = 1.0f / sqrtf(radiusSq);
+    x *= invRadius;
+    y *= invRadius;
+  }
+  *spinX = x;
+  *spinY = y;
+}
+static void syncPowerAutoAimUI();
+static int adaptivePhase(float dist) {
+  if (dist > 0.1f)    return 0;  
+  if (dist > 0.02f)   return 1;  
+  if (dist > 0.001f)  return 2;  
+  if (dist > 0.0001f) return 4;  
+  if (dist > 0.00001f) return 5; 
+  return 6;                      
+}
+#endif
+#ifdef ADVANCED_CONTROLS
+static bool g_autoAimModeDirection = false; 
+static bool g_autoAimModePower    = false; 
+static jobject g_autoAimDirToggle  = nullptr; 
+static jobject g_autoAimPwrToggle  = nullptr; 
+struct SavedShot {
+  float dir0, dir1; 
+  float power;      
+};
+static std::vector<SavedShot> g_savedShots;      
+static std::string g_savedShotsPath;             
+static std::mutex g_savedShotsMutex;             
+static std::atomic<bool> g_smartAimStart{false}; 
+static bool g_smartAimActive = false;            
+static int g_smartAimIndex = 0;                  
+static int g_smartAimBestIndex = -1;             
+static float g_smartAimBestDist = 1e9f;          
+#endif
+static std::atomic<time_t> g_lastNtpTime{0};          
+static std::atomic<uint64_t> g_lastNtpFetchMs{0};     
+constexpr uint64_t NTP_CACHE_MS = 300000; 
+static jobject previewPowerTextView = nullptr;
+static jobject g_previewPowerSeekBar = nullptr; 
+static bool g_shootitPredEnabled = false;
+static jobject g_shootitPredToggle = nullptr;
+static uint8_t *g_shootitSceneBlob = nullptr;
+static int g_shootitSceneBlobLen = 0;
+static void *g_shootitSceneKlass = nullptr;
+static int g_shootitShotInfoOff = -1;   
+static int g_shootitDirXOff = -1;       
+static float g_shootitPuckRadius = 0.6f; 
+static float g_shootitBallRadius = 0.3f; 
+static int g_shootitDirYOff = -1;       
+static int g_shootitForceOff = -1;      
+static int g_shootitPuckIdOff = -1;     
+static bool g_shootitReady = false;     
+static bool g_freeMode = false;                   
+static bool g_extendedLinesEnabled = false;        
+static jobject g_extendedLinesToggle = nullptr;    
+static bool g_shootitIsOurCall = false; 
+static bool g_shootitPredicting = false;
+static uint64_t g_shootitLastPredMs = 0;
+static float g_shootitDynamicYOffset = 0.0f;  
+static int g_freeLineColorIdx = 210;                 
+static std::map<void*, int> g_freeBallRegistry;    
+static std::mutex g_freeBallMutex;                 
+static float g_freeCueBallPos[3] = {0, 0, 0};       
+static bool g_freeCueBallValid = false;             
+static void *g_freeCueBallObject = nullptr;          
+static float g_lastFreeDirX = -999.0f;              
+static float g_lastFreeDirZ = -999.0f;
+constexpr uint64_t SHOOTIT_THROTTLE_MS = 33;  
+static jobject g_activity = nullptr;
+static jobject g_loginContainer = nullptr;
+static jobject g_updateContainer = nullptr;     
+#ifdef ADVANCED_CONTROLS
+static jobject g_savedDialogContainer = nullptr;  
+#endif
+static jobject g_keyField1 = nullptr;
+static jobject g_keyField2 = nullptr;
+static jobject g_keyField3 = nullptr;
+static jobject g_keyField4 = nullptr;
+static bool g_keyValidated = false;
+static bool g_sabotaged = false;          
+static std::string g_deviceId;
+static uint32_t g_deviceIdHash = 0; 
+static std::mutex g_remoteCfgMutex;
+static bool g_remoteCfgPoolAllowed = false;    
+static bool g_remoteCfgShootitAllowed = false; 
+static bool g_remoteCfgEnabled = false;        
+static bool g_remoteCfgFetched = false;        
+static std::string g_realKeyFromRemote;        
+static std::string g_publicKeyFromRemote;       
+static bool g_publicPoolAllowed = false;         
+static bool g_publicShootitAllowed = false;      
+static jobject g_sslFactory = nullptr;            
+static bool g_updateRequired = false;            
+static std::string g_updateUrl;                  
+static std::string g_latestVersion;              
+static jobject g_versionTextView = nullptr;       
+volatile bool g_skipVersionCheck = false;         
+volatile bool g_forceUpdateBypass = false;        
+constexpr uintptr_t OFF_CUE_CONTROLLER =
+    0x28; 
+constexpr uintptr_t OFF_RAY_DIRECTION = 0x64; 
+constexpr uintptr_t OFF_CURRENT_DIR_SYNCED = 0x11C; 
+constexpr uintptr_t OFF_SPIN_OFFSET = 0x70;   
+constexpr uintptr_t OFF_CUE_DIRECTION_PRIMARY = 0x30; 
+constexpr uintptr_t OFF_CUE_DIRECTION_MIRROR = 0x3C;  
+constexpr uintptr_t OFF_POOLGAMECONTROLLER_BIH =
+    0x30; 
+constexpr uintptr_t OFF_BIH_ISCUEBALLINHAND =
+    0x74; 
+constexpr uintptr_t OFF_BIH_CUEBALLPOSITION =
+    0x78; 
+constexpr uintptr_t OFF_BIH_CUEBALL_TRANSFORM =
+    0x30; 
+constexpr uintptr_t ENC_RVA_POWER_BAR_DRAGGED = 0x24FABE1E;
+constexpr uintptr_t ENC_RVA_ROTATE_CUE = 0x24FAB73E;
+constexpr uintptr_t ENC_RVA_APPLY_SPIN = 0x24FAA18E;
+constexpr uintptr_t ENC_RVA_BIH_LATEUPDATE = 0x24F96D92;
+constexpr uintptr_t ENC_RVA_DROP_BALL_FROM_HAND = 0x24FAC9AA;
+constexpr uintptr_t ENC_REMOTE_POOL_SIMULATE = 0x46C372C9;
+constexpr uintptr_t ENC_REMOTE_RUSTBRIDGE_SIMULATE_POOL = 0x46C371B9;
+constexpr uintptr_t ENC_RVA_SET_LAST_LOCAL_SHOT_INFO = 0x24FA8F02;
+constexpr uintptr_t ENC_RVA_GAMESTORE_READ = 0x2583F112;
+constexpr uintptr_t ENC_RVA_JTOKEN_VALUE_STRING = 0x24031CB2;
+constexpr uintptr_t ENC_BSS_KEY_ENCRYPTED_PROPS = 0x2B8F1DEA;
+constexpr uintptr_t ENC_BSS_KEY_SIGNATURE = 0x2B89D9EA;
+constexpr uintptr_t ENC_BSS_MI_JTOKEN_STRING = 0x2B877FFA;
+constexpr uintptr_t ENC_RVA_GET_MAIN_CAMERA = 0x286845EE;
+constexpr uintptr_t ENC_RVA_WORLD_TO_SCREEN_POINT = 0x28685F32;
+constexpr uintptr_t ENC_RVA_GET_PIXEL_HEIGHT = 0x2868672A;
+constexpr uintptr_t ENC_RVA_GET_POS_ROT = 0x285768F2;
+constexpr uintptr_t ENC_RVA_JTOKEN_VALUE_INT = 0x24031D02;
+constexpr uintptr_t ENC_RVA_IL2CPP_OBJECT_NEW = 0x25B04BFE;
+constexpr uintptr_t ENC_RVA_IL2CPP_ARRAY_NEW = 0x25B04402;
+constexpr uintptr_t ENC_RVA_GAMESTORE_GAMEID = 0x258CF5D6;
+constexpr uintptr_t ENC_REMOTE_CLEARGS = 0x467C8291;
+constexpr uintptr_t ENC_BSS_MI_JTOKEN_INT = 0x2B877FAA;
+constexpr uintptr_t ENC_REMOTE_BSS_SHOOTIT_CLASS_REF = 0x483BACC5;
+constexpr uintptr_t ENC_REMOTE_BSS_CIPHER_KLASS = 0x486982E5;
+constexpr uintptr_t ENC_REMOTE_BSS_BYTE_ARRAY_KLASS = 0x48684835;
+constexpr uintptr_t ENC_REMOTE_BSS_KEY_FORMAT_SECRET = 0x487F0CCD;
+constexpr uintptr_t ENC_REMOTE_BSS_KEY_TURN = 0x4879B7FD;
+constexpr uintptr_t ENC_REMOTE_RVA_CIPHER_SEED = 0x4A3D49ED;
+constexpr uintptr_t ENC_REMOTE_RVA_CIPHER_ENCRYPT = 0x4A3D5F35;
+constexpr uintptr_t ENC_RVA_GET_CUE_POWER = 0x24FAD54A;
+constexpr uintptr_t ENC_RVA_GET_CUE_SPIN  = 0x24FAD792;
+constexpr uintptr_t ENC_RVA_GET_MAX_MASSE = 0x24FADB22;
+constexpr uintptr_t ENC_RVA_CUE_SET_RAY_DIRECTION = 0x24F95E7E;
+constexpr uintptr_t ENC_RVA_TRICKSHOT_ONSTATECHANGE = 0x24FA6F6E;
+constexpr uintptr_t ENC_RVA_POOL_SHOOT = 0x24FAB912;
+constexpr uintptr_t ENC_RVA_POOL_UPDATE = 0x24FAA032;
+constexpr uintptr_t ENC_REMOTE_SHOOTIT_SIMULATE       = 0x46C37BAD;
+constexpr uintptr_t ENC_REMOTE_SHOOTIT_CONTROLLER_INPUT = 0x4702EE69;
+constexpr uintptr_t ENC_REMOTE_SHOOTIT_MYPLAYER_GET    = 0x4702E521;
+enum FreeOffsetIndex {
+  FREE_IDX_SPHERECAST = 0,   
+  FREE_IDX_GET_COLLIDER,     
+  FREE_IDX_GET_GAME_OBJECT,  
+  FREE_IDX_GET_LAYER,        
+  FREE_IDX_RB_GET_POSITION,  
+  FREE_IDX_BALL_GET_NUMBER,  
+  FREE_IDX_BALL_UPDATE,      
+  FREE_IDX_CUE_UPDATE,       
+  FREE_IDX_CAMERA_MAIN,      
+  FREE_IDX_CAMERA_W2S,       
+  FREE_IDX_CAMERA_HEIGHT,    
+  FREE_OFFSET_COUNT
+};
+static const uintptr_t ENC_FREE_OFFSETS[FREE_OFFSET_COUNT] = {
+    0x06FD489B,  
+    0x06FD02FB,  
+    0x06F3478F,  
+    0x06F3F497,  
+    0x06FDFB43,  
+    0x0B20AB57,  
+    0x0B2097D7,  
+    0x0B233947,  
+    0x06CDC3BB,  
+    0x06CDD967,  
+    0x06CDE17F  
+};
+static uint32_t g_equation_seed = 0;
+static constexpr uint64_t ENC_LABEL_OFFSET_ON  = 0xEC3CF869F1BC53B3ull;
+static constexpr uint64_t ENC_LABEL_OFFSET_OFF = 0xEC3CF869F1BC53B0ull;
+static const char g_labels_table[16] =
+    {'O','N',0,'O','F','F',0,0,0,0,0,0,0,0,0,0};
+static uint32_t g_label_key = 0;  
+static uint32_t mixHash(uint32_t hash, uint32_t A, uint32_t B, uint32_t C, uint32_t D) {
+  uint32_t h = hash;
+  h ^= A;
+  h *= 0x85EBCA6B;
+  h ^= (h >> 13);
+  h += B;
+  h *= 0xC2B2AE35;
+  h ^= (h >> 16);
+  h ^= C;
+  h = (h << 7) | (h >> 25);
+  h += D;
+  h ^= (h >> 11);
+  return h;
+}
+static uintptr_t getFreeRVA(int index) {
+  if (index < 0 || index >= FREE_OFFSET_COUNT) return 0;
+  return ENC_FREE_OFFSETS[index] ^ (uintptr_t)g_equation_seed;
+}
+constexpr uintptr_t OFF_CUE_RAY_DIRECTION     = 0x64; 
+constexpr uintptr_t OFF_CUE_LAYER_MASK        = 0x28; 
+constexpr uintptr_t OFF_CUE_RADIUS            = 0x50; 
+static uint32_t g_rva_seed = 0; 
+static const uint8_t SEED_PARTS[] = {0x67, 0x39, 0x65, 0x4F};
+static const uint8_t SEED_MASKS[] = {0x3D, 0xA7, 0x52, 0x8E};
+static uint32_t computePrologueDigest(); 
+static void assembleRvaSeed() {
+  g_rva_seed = 0;
+  for (int i = 0; i < 4; i++) {
+    g_rva_seed |= ((uint32_t)(SEED_PARTS[i] ^ SEED_MASKS[i]) << (24 - i * 8));
+  }
+  g_rva_seed ^= computePrologueDigest();
+}
+static uintptr_t getRVA(uintptr_t encoded) {
+  return encoded ^ g_rva_seed;
+}
+static uint32_t g_remote_seed_a = 0; 
+static uint32_t g_remote_seed_b = 0; 
+static uintptr_t g_cachedBssShootitClassRef = 0;
+static uint8_t g_rs_frag0 = 0; 
+static uint8_t g_rs_frag1 = 0; 
+static uint8_t g_rs_frag2 = 0; 
+static uint8_t g_rs_frag3 = 0; 
+static const uint8_t RS_MASKS[] = {0xC7, 0x3A, 0x85, 0xF1};
+static void storeRemoteSeed(uint32_t seed) {
+  g_rs_frag0 = ((seed >> 24) & 0xFF) ^ RS_MASKS[0];
+  g_rs_frag1 = ((seed >> 16) & 0xFF) ^ RS_MASKS[1];
+  g_rs_frag2 = ((seed >>  8) & 0xFF) ^ RS_MASKS[2];
+  g_rs_frag3 = ((seed >>  0) & 0xFF) ^ RS_MASKS[3];
+}
+static uint32_t loadRemoteSeed() {
+  return ((uint32_t)(g_rs_frag0 ^ RS_MASKS[0]) << 24) |
+         ((uint32_t)(g_rs_frag1 ^ RS_MASKS[1]) << 16) |
+         ((uint32_t)(g_rs_frag2 ^ RS_MASKS[2]) <<  8) |
+         ((uint32_t)(g_rs_frag3 ^ RS_MASKS[3]) <<  0);
+}
+static const uint8_t E_RURL_A[] = {0x2B,0x83,0xD3,0x52,0x75,0xF1,0x22,0x2C,0x8D,0x2B,0xA6,0x97,0x74,0x70,0x3A,0xCA,0x59,0xCE,0x45,0x6D,0x1D,0x7D,0xBB,0x5E,0x31,0x52,0xD6,0xAA,0xA3,0x71,0xDE,0x88,0x95};
+static const uint8_t E_RURL_B[] = {0x2B,0x83,0xD3,0x52,0x75,0xF1,0x22,0x2C,0x8D,0x2B,0xA6,0x97,0x74,0x70,0x3A,0xCA,0x59,0xCE,0x45,0x6D,0x1D,0x7D,0xBB,0x5E,0x31,0xEA,0x68,0x7A,0xFB,0x9E,0xDE,0x57,0x5D};
+static const uint8_t E_RURL_EQ[] = {0x2B,0x83,0xD3,0x52,0x75,0xF1,0x22,0x2C,0x8D,0x2B,0xA6,0x97,0x74,0x70,0x3A,0xCA,0x59,0xCE,0x45,0x6D,0x1D,0x7D,0xBB,0x5E,0x31,0xCA,0x7A,0x6A,0x23,0x8E,0xAD,0x26,0x2D};
+static const uint8_t E_RURL_LABELS[] = {0x2B,0x83,0xD3,0x52,0x75,0xF1,0x22,0x2C,0x8D,0x2B,0xA6,0x97,0x74,0x70,0x3A,0xCA,0x59,0xCE,0x45,0x6D,0x1D,0x7D,0xBB,0x5E,0x31,0xCA,0x6A,0x4B,0x9B,0xFE,0x2E,0x2F,0xAE};
+static uintptr_t getRemoteRVA(uintptr_t encoded) {
+  return encoded ^ g_rva_seed ^ loadRemoteSeed() ^ g_deviceIdHash;
+}
+static uint32_t fnv1a_hash(const char *str, int len) {
+  uint32_t h = 0x811C9DC5;
+  for (int i = 0; i < len; i++) {
+    h ^= (uint8_t)str[i];
+    h *= 0x01000193;
+  }
+  return h;
+}
+static const uint8_t REMOTE_SALT[] = {0xCA, 0x0F, 0x67, 0x40, 0x02, 0x77,
+                                      0xA1, 0xA4, 0xB9, 0xFF, 0xC1, 0xE5,
+                                      0x77, 0x51, 0x29, 0xF5};
+static bool decryptRemoteWord(const uint8_t *enc, int encLen,
+                              char *outWord, int outCap) {
+  if (encLen <= 0 || encLen >= outCap) return false;
+  uint8_t buf[64];
+  if (encLen > 64) return false;
+  memcpy(buf, enc, encLen);
+  for (int i = 0; i < encLen; i++)
+    buf[i] ^= REMOTE_SALT[i % sizeof(REMOTE_SALT)];
+  for (int i = 0; i < encLen - 1; i += 2) {
+    uint8_t t = buf[i]; buf[i] = buf[i+1]; buf[i+1] = t;
+  }
+  for (int i = 0; i < encLen; i++) {
+    int offset = (i * 13 + 7) % 256;
+    buf[i] = (buf[i] - offset) & 0xFF;
+  }
+  memcpy(outWord, buf, encLen);
+  outWord[encLen] = '\0';
+  return true;
+}
+static int base64Decode(const char *in, int inLen, uint8_t *out, int outCap) {
+  static const int T[256] = {
+    ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,
+    ['I']=8,['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,
+    ['Q']=16,['R']=17,['S']=18,['T']=19,['U']=20,['V']=21,['W']=22,['X']=23,
+    ['Y']=24,['Z']=25,['a']=26,['b']=27,['c']=28,['d']=29,['e']=30,['f']=31,
+    ['g']=32,['h']=33,['i']=34,['j']=35,['k']=36,['l']=37,['m']=38,['n']=39,
+    ['o']=40,['p']=41,['q']=42,['r']=43,['s']=44,['t']=45,['u']=46,['v']=47,
+    ['w']=48,['x']=49,['y']=50,['z']=51,['0']=52,['1']=53,['2']=54,['3']=55,
+    ['4']=56,['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63
+  };
+  int o = 0, val = 0, bits = 0;
+  for (int i = 0; i < inLen && in[i] != '=' && in[i] != '\0'; i++) {
+    val = (val << 6) | T[(unsigned char)in[i]];
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      if (o < outCap) out[o++] = (val >> bits) & 0xFF;
+    }
+  }
+  return o;
+}
+std::mutex trajectoryMutex;
+std::mutex blobMutex; 
+std::vector<float> cachedTrajectoryScreenCoords;
+bool hasNewTrajectory = false;
+static uint8_t *ghostWorkBuf = nullptr; 
+static int ghostWorkBufCapacity = 0;
+static uint8_t *ghostArrBuf = nullptr; 
+static int ghostArrBufCapacity = 0;
+static uint8_t *siGhostWorkBuf = nullptr;
+static int siGhostWorkBufCap = 0;
+static uint8_t *siGhostArrBuf = nullptr;
+static int siGhostArrBufCap = 0;
+static uint8_t *ensureBuffer(uint8_t *&buf, int &capacity, int needed) {
+  if (buf == nullptr || capacity < needed) {
+    free(buf);
+    capacity = needed + 4096; 
+    buf = (uint8_t *)malloc(capacity);
+  }
+  return buf;
+}
+static std::string cachedEncProps;
+static std::string cachedSignature;
+static uint64_t lastPropsReadMs = 0;
+constexpr uint64_t PROPS_CACHE_MS = 2000; 
+template <typename Func> void withJNIEnv(Func fn) {
+  if (javaVM == nullptr)
+    return;
+  JNIEnv *env = nullptr;
+  bool needsDetach = false;
+  int stat = javaVM->GetEnv((void **)&env, JNI_VERSION_1_6);
+  if (stat == JNI_EDETACHED) {
+    if (javaVM->AttachCurrentThread(&env, nullptr) == JNI_OK)
+      needsDetach = true;
+    else
+      return;
+  }
+  if (env)
+    fn(env);
+  if (needsDetach)
+    javaVM->DetachCurrentThread();
+}
+typedef void (*PowerBarDragged_t)(void *, float, void *);
+typedef void (*RotateCue_t)(void *, float, void *);
+typedef void (*ApplySpin_t)(void *, float, float, void *);
+typedef void (*CueSetRayDirection_t)(void *, int, float, float, float, void *);
+PowerBarDragged_t orig_PowerBarDragged = nullptr;
+RotateCue_t orig_RotateCue = nullptr;
+ApplySpin_t orig_ApplySpin = nullptr;
+static CueSetRayDirection_t CueSetRayDirection_func = nullptr;
+typedef void (*PoolUpdate_t)(void *, void *);
+static PoolUpdate_t orig_PoolUpdate = nullptr;
+static void my_PoolUpdate(void *instance, void *methodInfo);
+typedef void (*FreeBallUpdate_t)(void *instance);
+typedef void (*FreeCueUpdate_t)(void *instance);
+static FreeBallUpdate_t orig_FreeBallUpdate = nullptr;
+static FreeCueUpdate_t  orig_FreeCueUpdate  = nullptr;
+float lastPower = -1.0f;
+float lastSpinX = 0.0f;
+float lastSpinY = 0.0f;
+static bool  g_hasPreferredSpin = false;
+static float g_preferredSpinX = 0.0f;
+static float g_preferredSpinY = 0.0f;
+static bool  g_hasPreferredShot = false;
+static SpinSearchShotState g_preferredShot{};
+static bool  g_hasRestoreShot = false;
+static SpinSearchShotState g_restoreShot{};
+static std::atomic<bool> g_restoreShotStart{false};
+static int   g_restoreEnforceFramesLeft = 0;
+static SpinSearchShotState g_restoreEnforceTarget{};
+static const int RESTORE_ENFORCE_MAX_FRAMES = 20;
+static const float RESTORE_ENFORCE_DIR_TOLERANCE_DEG = 0.05f;
+static const int RESTORE_ENFORCE_STABLE_FRAMES_REQUIRED = 3;
+static int   g_restoreStableFrames = 0;
+static void *lastCueController = nullptr; 
+static void *lastPoolGameController = nullptr; 
+static uintptr_t g_cachedBssCipherKlass = 0;
+static uintptr_t g_cachedBssByteArrayKlass = 0;
+static uintptr_t g_cachedBssKeyFormatSecret = 0;
+static uintptr_t g_cachedBssKeyTurn = 0;
+static uint32_t g_cachedAddrHash = 0;
+static uint32_t computeCachedAddrHash() {
+  uint32_t h = 0x811C9DC5;
+  uint32_t vals[] = {
+    (uint32_t)g_cachedBssCipherKlass,
+    (uint32_t)g_cachedBssByteArrayKlass,
+    (uint32_t)g_cachedBssKeyFormatSecret,
+    (uint32_t)g_cachedBssKeyTurn
+  };
+  for (int i = 0; i < 4; i++) {
+    for (int b = 0; b < 4; b++) {
+      h ^= (vals[i] >> (b * 8)) & 0xFF;
+      h *= 0x01000193;
+    }
+  }
+  return h;
+}
+static void sealCachedAddresses() {
+  g_cachedAddrHash = computeCachedAddrHash();
+}
+static bool verifyCachedAddresses() {
+  return g_cachedAddrHash != 0 && computeCachedAddrHash() == g_cachedAddrHash;
+}
+struct CapturedShotInfo {
+  float dir0, dir1;
+  float force;
+  float spin0, spin1;
+  uint8_t randOff, brkPow;
+  float incline;
+  bool valid;
+} lastCapturedShotInfo = {};
+static uint8_t ghostKeystream[51] = {0};
+static uint8_t ghostOrigEncBytes[51] = {0};
+static void *ghostReqPtr = nullptr;
+static uint8_t *ghostItemsDataPtr = nullptr;
+static bool hasGhostData = false;
+static uint64_t lastGhostTimeMs = 0;
+static bool localShotPending =
+    false; 
+static bool localShotJustFired =
+    false; 
+static bool keystreamJustDerived =
+    false; 
+static int g_clearGSCountAfterLocalShot = 0;
+static bool g_waitingToClearLines = false;
+#define GHOST_REQ_ALLOC_SIZE 256
+#define GHOST_LIST_ALLOC_SIZE 64
+#define GHOST_ARRAY_ALLOC_SIZE 128 
+static uint8_t *ghostReqNative = nullptr;
+static uint8_t *ghostListNative = nullptr;
+static uint8_t *ghostArrayNative = nullptr;
+typedef void *(*RustBridgeSimulatePool_t)(void *byteArray);
+static RustBridgeSimulatePool_t RustBridgeSimulatePool_func = nullptr;
+RustBridgeSimulatePool_t orig_RustBridgeSimulatePool = nullptr;
+typedef void *(*SimulateShootIt_t)(void *byteArray);
+SimulateShootIt_t orig_SimulateShootIt = nullptr;
+typedef void (*OnControllerInputUpdate_t)(void *instance, float dirX, float dirY, float force, void *methodInfo);
+OnControllerInputUpdate_t orig_OnControllerInputUpdate = nullptr;
+typedef uint32_t (*GetMyPlayerIndex_t)();
+static GetMyPlayerIndex_t GetMyPlayerIndex_func = nullptr;
+static uint8_t *capturedRustBridgeData = nullptr;
+static int capturedRustBridgeLen = 0;
+static void *capturedRustBridgeKlass =
+    nullptr; 
+static int shotInfoMsgpackOffset = -1;
+static int shotInfoSectionEnd = -1;
+static bool hasRustBridgeData = false;
+static bool blobIsFromOurShot =
+    false; 
+static float savedCueBallX = 0.0f;
+static float savedCueBallY = 0.0f;
+static bool hasSavedCueBallPos = false;
+static float savedTableWorldY = 0.0f; 
+static bool g_isInTrickShotMode = false;
+static double g_trickShotTargetX = 0.0;   
+static double g_trickShotTargetZ = 0.0;   
+static constexpr int kTrickShotTargetBallIdx = 1;
+static double g_lastGhostCueBallX = 0.0;  
+static double g_lastGhostCueBallY = 0.0;
+static std::atomic<double> g_lastTrickShotDistanceDisplay{0.0};
+static thread_local bool g_trickShotCapturedXThisState = false;
+static thread_local bool g_trickShotCapturedZThisState = false;
+static bool  g_hasGhostCueBallPos = false;
+static bool  g_ghostTargetBallMoved = false;
+static bool  g_suppressGhostOverlayPush = false;
+typedef void *(*GameStoreRead_t)(void *key, void *defaultVal);
+typedef void *(*JTokenValueString_t)(void *jtoken, void *methodInfo);
+typedef int (*JTokenValueInt_t)(void *jtoken, void *methodInfo);
+static GameStoreRead_t GameStoreRead_func = nullptr;
+static JTokenValueString_t JTokenValueString_func = nullptr;
+static JTokenValueInt_t JTokenValueInt_func = nullptr;
+static uintptr_t il2cppBase = 0; 
+typedef void *(*Il2cppStringNew_t)(const char *str);
+static Il2cppStringNew_t Il2cppStringNew_func = nullptr;
+typedef void *(*Il2cppObjectNew_t)(void *klass);
+typedef void *(*Il2cppArrayNew_t)(void *klass, uint32_t len);
+typedef void (*CipherSeed_t)(void *cipherState, void *keyArray, void *mi);
+typedef void *(*CipherEncrypt_t)(void *cipherState, void *plainArray);
+typedef uint64_t (*GameStoreGameID_t)(void *mi);
+static Il2cppObjectNew_t Il2cppObjectNew_func = nullptr;
+static Il2cppArrayNew_t Il2cppArrayNew_func = nullptr;
+static CipherSeed_t CipherSeed_func = nullptr;
+static CipherEncrypt_t CipherEncrypt_func = nullptr;
+static GameStoreGameID_t GameStoreGameID_func = nullptr;
+GameStoreGameID_t orig_GameStoreGameID = nullptr;
+static uint32_t capturedGameId = 0;
+static bool hasGameId = false;
+typedef float (*GetCueFloat_t)(void *instance, void *methodInfo);
+static GetCueFloat_t GetCuePower_func = nullptr;
+static GetCueFloat_t GetCueSpin_func = nullptr;
+static GetCueFloat_t GetMaxMasseAngle_func = nullptr;
+typedef void (*ClearGS_t)();
+ClearGS_t orig_ClearGS = nullptr;
+typedef void (*SetLastLocalShotInfo_t)(void *, void *);
+SetLastLocalShotInfo_t orig_SetLastLocalShotInfo = nullptr;
+static void writeFloatBE(uint8_t *dst, float val) {
+  uint32_t bits;
+  memcpy(&bits, &val, 4);
+  dst[0] = (bits >> 24) & 0xFF;
+  dst[1] = (bits >> 16) & 0xFF;
+  dst[2] = (bits >> 8) & 0xFF;
+  dst[3] = bits & 0xFF;
+}
+static float readFloatBE(const uint8_t *src) {
+  uint32_t bits = ((uint32_t)src[0] << 24) | ((uint32_t)src[1] << 16)
+                | ((uint32_t)src[2] << 8)  | (uint32_t)src[3];
+  float f;
+  memcpy(&f, &bits, 4);
+  return f;
+}
+static std::string readIl2CppString(void *strObj);
+static bool readFreshPropsFromGameStore(std::string &outEncProps,
+                                        std::string &outSignature);
+static int writeMsgPackStrHeader(uint8_t *dst, int strLen);
+void extractTrajectoryFromMsgPackResponse(void *responseByteArray);
+void pushTrajectoryToOverlay();
+static uint32_t computeLibsFingerprint();
+static uint32_t computeLabelKey(uint32_t V1, uint32_t V2,
+                                uint32_t P1, uint32_t P2, uint32_t P3);
+static void     fetchLabelKey();
+static const char *getLabel(bool on);
+void performPreShotGhostSimulation(float dir0, float dir1, float force,
+                                   float spin0, float spin1);
+static std::string decryptStr(const uint8_t *data, int len);
+static bool checkProcMaps();
+static bool checkProcFD();
+static bool checkThreadNames();
+static void scheduleStealthCrash();
+static bool checkFileIntegrity2();
+static bool checkRootIndicators();
+static bool checkPrologueIntegrity();
+static bool checkFridaPort();
+static bool checkLoadedLibraries();
+static bool checkMemoryCRC();
+static bool checkInlineHooks();
+static void fetchRemoteConfig(JNIEnv *env);
+#define STEALTH_ANTI_FRIDA(CheckFunction, IntervalMs) \
+    { \
+        static std::atomic<uint64_t> s_lastCheck{0}; \
+        struct timespec ts; \
+        clock_gettime(CLOCK_MONOTONIC, &ts); \
+        uint64_t nowMs = ts.tv_sec * 1000 + ts.tv_nsec / 1000000; \
+        uint64_t last = s_lastCheck.load(std::memory_order_relaxed); \
+        if (nowMs - last > (IntervalMs)) { \
+            if (s_lastCheck.compare_exchange_strong(last, nowMs)) { \
+                std::thread([]() { \
+                    if (CheckFunction()) scheduleStealthCrash(); \
+                }).detach(); \
+            } \
+        } \
+    }
+static const uint8_t ENC_S_ADD_BREAK_POWER[] = {0x94, 0x03, 0x54, 0xFB, 0x0E, 0xB3, 0x74, 0x3A, 0xC5, 0x3D, 0xAE, 0xFF, 0xE5, 0x38, 0x93};
+static int buildKnownPlaintext(uint8_t *out, float dir0, float dir1,
+                               float force, float spin0, float spin1) {
+  int pos = 0;
+  out[pos++] = 0x97; 
+  out[pos++] = 0x92; 
+  out[pos++] = 0xCA; 
+  writeFloatBE(&out[pos], dir0);
+  pos += 4;
+  out[pos++] = 0xCA;
+  writeFloatBE(&out[pos], dir1);
+  pos += 4;
+  out[pos++] = 0xCA;
+  writeFloatBE(&out[pos], force);
+  pos += 4;
+  out[pos++] = 0x92; 
+  out[pos++] = 0xCA;
+  writeFloatBE(&out[pos], spin0);
+  pos += 4;
+  out[pos++] = 0xCA;
+  writeFloatBE(&out[pos], spin1);
+  pos += 4;
+  return pos; 
+}
+static int buildFullPlaintext51(uint8_t *out, float dir0, float dir1,
+                                float force, float spin0, float spin1,
+                                float cuePower, float cueSpin, float cueMaxMasse,
+                                bool randOff, bool brkPow, float incline) {
+  int p = 0;
+  out[p++] = 0x97;       
+  out[p++] = 0x92;       
+  out[p++] = 0xCA; writeFloatBE(&out[p], dir0); p += 4;
+  out[p++] = 0xCA; writeFloatBE(&out[p], dir1); p += 4;
+  out[p++] = 0xCA; writeFloatBE(&out[p], force); p += 4;
+  out[p++] = 0x92;
+  out[p++] = 0xCA; writeFloatBE(&out[p], spin0); p += 4;
+  out[p++] = 0xCA; writeFloatBE(&out[p], spin1); p += 4;
+  out[p++] = 0x93;       
+  out[p++] = 0xCA; writeFloatBE(&out[p], cuePower); p += 4;
+  out[p++] = 0xCA; writeFloatBE(&out[p], cueSpin); p += 4;
+  out[p++] = 0xCA; writeFloatBE(&out[p], cueMaxMasse); p += 4;
+  out[p++] = randOff ? 0xC3 : 0xC2;
+  out[p++] = brkPow ? 0xC3 : 0xC2;
+  out[p++] = 0xCA; writeFloatBE(&out[p], incline); p += 4;
+  return p; 
+}
+static int writeMsgPackUint(uint8_t *dst, uint32_t val) {
+  if (val <= 127) { dst[0] = (uint8_t)val; return 1; }
+  if (val <= 255) { dst[0] = 0xCC; dst[1] = (uint8_t)val; return 2; }
+  if (val <= 65535) {
+    dst[0] = 0xCD;
+    dst[1] = (val >> 8) & 0xFF;
+    dst[2] = val & 0xFF;
+    return 3;
+  }
+  dst[0] = 0xCE;
+  dst[1] = (val >> 24) & 0xFF;
+  dst[2] = (val >> 16) & 0xFF;
+  dst[3] = (val >> 8) & 0xFF;
+  dst[4] = val & 0xFF;
+  return 5;
+}
+static bool deriveKeyFromEShotAngle(uint8_t *keyOut16) {
+  if (!GameStoreRead_func || !JTokenValueString_func || !il2cppBase)
+    return false;
+  void **pKeyFS = reinterpret_cast<void **>(il2cppBase + g_cachedBssKeyFormatSecret);
+  void **pMiStr = reinterpret_cast<void **>(il2cppBase + getRVA(ENC_BSS_MI_JTOKEN_STRING));
+  void *keyFS = *pKeyFS;
+  void *miStr = *pMiStr;
+  if (!keyFS || !miStr) return false;
+  void *jtoken = GameStoreRead_func(keyFS, nullptr);
+  if (!jtoken) return false;
+  void *strObj = JTokenValueString_func(jtoken, miStr);
+  std::string hexStr = readIl2CppString(strObj);
+  if (hexStr.size() != 32) {
+    return false;
+  }
+  std::string swapped = hexStr.substr(16, 16) + hexStr.substr(0, 16);
+  for (int i = 0; i < 16; i++) {
+    char hex[3] = { swapped[i*2], swapped[i*2+1], 0 };
+    keyOut16[i] = (uint8_t)strtoul(hex, nullptr, 16);
+  }
+  return true;
+}
+static int readTurnFromGameStore() {
+  if (!GameStoreRead_func || !JTokenValueInt_func || !il2cppBase)
+    return -1;
+  void **pKey = reinterpret_cast<void **>(il2cppBase + g_cachedBssKeyTurn);
+  void **pMi = reinterpret_cast<void **>(il2cppBase + getRVA(ENC_BSS_MI_JTOKEN_INT));
+  void *key = *pKey;
+  void *mi = *pMi;
+  if (!key || !mi) return -1;
+  void *jtoken = GameStoreRead_func(key, nullptr);
+  if (!jtoken) return -1;
+  return JTokenValueInt_func(jtoken, mi);
+}
+static bool encryptShotInfoNative(const uint8_t *plaintext, int plainLen,
+                                  uint8_t *encOut, int *encOutLen) {
+  if (!Il2cppObjectNew_func || !Il2cppArrayNew_func ||
+      !CipherSeed_func || !CipherEncrypt_func || !il2cppBase)
+    return false;
+  void **pCipherKlass = reinterpret_cast<void **>(il2cppBase + g_cachedBssCipherKlass);
+  void *cipherKlass = *pCipherKlass;
+  if (!cipherKlass) return false;
+  void **pByteKlass = reinterpret_cast<void **>(il2cppBase + g_cachedBssByteArrayKlass);
+  void *byteKlass = *pByteKlass;
+  if (!byteKlass) return false;
+  uint8_t key[16];
+  if (!deriveKeyFromEShotAngle(key)) return false;
+  void *cipherState = Il2cppObjectNew_func(cipherKlass);
+  if (!cipherState) return false;
+  void *keyArr = Il2cppArrayNew_func(byteKlass, 16);
+  if (!keyArr) return false;
+  memcpy(reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(keyArr) + 0x20),
+         key, 16);
+  CipherSeed_func(cipherState, keyArr, nullptr);
+  void *plainArr = Il2cppArrayNew_func(byteKlass, plainLen);
+  if (!plainArr) return false;
+  memcpy(reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(plainArr) + 0x20),
+         plaintext, plainLen);
+  void *encResult = CipherEncrypt_func(cipherState, plainArr);
+  if (!encResult) return false;
+  int encLen = *reinterpret_cast<int *>(
+      reinterpret_cast<uintptr_t>(encResult) + 0x18);
+  if (encLen <= 0 || encLen > 256) return false;
+  memcpy(encOut,
+         reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(encResult) + 0x20),
+         encLen);
+  *encOutLen = encLen;
+  if (!capturedRustBridgeKlass) {
+    capturedRustBridgeKlass =
+        *reinterpret_cast<void **>(reinterpret_cast<uintptr_t>(encResult));
+  }
+  return true;
+}
+static int buildBlobFromScratch(uint8_t *blobOut, int blobCapacity,
+                                const uint8_t *encShotInfo, int encShotInfoLen,
+                                const std::string &encProps,
+                                const std::string &signature,
+                                int turn, uint32_t gid,
+                                float cueBallX, float cueBallY) {
+  int p = 0;
+  blobOut[p++] = 0x96;
+  p += writeMsgPackUint(&blobOut[p], turn >= 0 ? (uint32_t)turn : 0);
+  p += writeMsgPackUint(&blobOut[p], gid);
+  blobOut[p++] = 0xDC;
+  blobOut[p++] = 0x00;
+  blobOut[p++] = 0x33;
+  for (int i = 0; i < encShotInfoLen; i++) {
+    uint8_t val = encShotInfo[i];
+    if (val <= 0x7F) { blobOut[p++] = val; }
+    else { blobOut[p++] = 0xCC; blobOut[p++] = val; }
+  }
+  p += writeMsgPackStrHeader(&blobOut[p], (int)encProps.size());
+  memcpy(&blobOut[p], encProps.data(), encProps.size());
+  p += (int)encProps.size();
+  blobOut[p++] = 0x93;
+  blobOut[p++] = 0x92;
+  blobOut[p++] = 0xCA; writeFloatBE(&blobOut[p], cueBallX); p += 4;
+  blobOut[p++] = 0xCA; writeFloatBE(&blobOut[p], cueBallY); p += 4;
+  blobOut[p++] = 0x94;
+  blobOut[p++] = 0xCA; writeFloatBE(&blobOut[p], 0.0f); p += 4;
+  blobOut[p++] = 0xCA; writeFloatBE(&blobOut[p], 0.0f); p += 4;
+  blobOut[p++] = 0xCA; writeFloatBE(&blobOut[p], 0.0f); p += 4;
+  blobOut[p++] = 0xCA; writeFloatBE(&blobOut[p], 1.0f); p += 4;
+  blobOut[p++] = 0x00;
+  p += writeMsgPackStrHeader(&blobOut[p], (int)signature.size());
+  memcpy(&blobOut[p], signature.data(), signature.size());
+  p += (int)signature.size();
+  return p;
+}
+static bool readBoolFromGameStore(const char *keyName, bool defaultVal) {
+  if (!Il2cppStringNew_func || !GameStoreRead_func || !JTokenValueInt_func ||
+      !il2cppBase)
+    return defaultVal;
+  void **pMiInt =
+      reinterpret_cast<void **>(il2cppBase + getRVA(ENC_BSS_MI_JTOKEN_INT));
+  void *miInt = *pMiInt;
+  if (!miInt)
+    return defaultVal;
+  void *keyStr = Il2cppStringNew_func(keyName);
+  if (!keyStr)
+    return defaultVal;
+  void *jtoken = GameStoreRead_func(keyStr, nullptr);
+  if (!jtoken)
+    return defaultVal;
+  int val = JTokenValueInt_func(jtoken, miInt);
+  return (val != 0);
+}
+#ifndef DIST_MARKER
+#define DIST_MARKER -8888.0f 
+#endif
+typedef void (*TrickShotOnStateChange_t)(void *self, void *newGameState);
+static TrickShotOnStateChange_t orig_TrickShotOnStateChange = nullptr;
+static void my_TrickShotOnStateChange(void *self, void *newGameState);
+typedef float (*JTokenValueFloat_t)(void *jtoken, void *methodInfo);
+static JTokenValueFloat_t orig_JTokenValueFloat = nullptr;
+static float my_JTokenValueFloat(void *jtoken, void *methodInfo);
+static constexpr uintptr_t kRvaJTokenValueFloat = 0x5F7F048;
+static constexpr uintptr_t kRvaTrickShotTargetXReturn = 0x50E9E88;
+static constexpr uintptr_t kRvaTrickShotTargetZReturn = 0x50E9EBC;
+#ifdef ADVANCED_CONTROLS
+static void appendSavedShot(float dir0, float dir1, float power);
+static void syncPowerAutoAimUI();
+#endif
+static void showToast(JNIEnv *env, const char *text);
+static double computeGhostTargetDistanceExact();
+static void appendTrickShotDistance();
+void performPreShotGhostSimulation(float dir0, float dir1, float force,
+                                   float spin0, float spin1) {
+  if (!orig_RustBridgeSimulatePool || !hasGameId)
+    return;
+  bool brkPow = readBoolFromGameStore(decryptStr(ENC_S_ADD_BREAK_POWER, sizeof(ENC_S_ADD_BREAK_POWER)).c_str(), false);
+  float cuePower = 0.0f, cueSpin = 0.0f, cueMaxMasse = 30.0f; 
+  if (lastPoolGameController && GetCuePower_func && GetCueSpin_func && GetMaxMasseAngle_func) {
+    cuePower    = GetCuePower_func(lastPoolGameController, nullptr);
+    cueSpin     = GetCueSpin_func(lastPoolGameController, nullptr);
+    cueMaxMasse = GetMaxMasseAngle_func(lastPoolGameController, nullptr);
+  }
+  uint8_t plaintext[51];
+  int plainLen = buildFullPlaintext51(plaintext, dir0, dir1, force, spin0, spin1,
+                                     cuePower, cueSpin, cueMaxMasse,
+                                     false, brkPow, 0.0f);
+  uint8_t encBytes[256];
+  int encLen = 0;
+  if (!encryptShotInfoNative(plaintext, plainLen, encBytes, &encLen)) {
+    return;
+  }
+  struct timespec _tsNow;
+  clock_gettime(CLOCK_MONOTONIC, &_tsNow);
+  uint64_t nowMs = _tsNow.tv_sec * 1000 + _tsNow.tv_nsec / 1000000;
+  if (nowMs - lastPropsReadMs >= PROPS_CACHE_MS) {
+    std::string tmpEnc, tmpSig;
+    if (readFreshPropsFromGameStore(tmpEnc, tmpSig)) {
+      cachedEncProps = std::move(tmpEnc);
+      cachedSignature = std::move(tmpSig);
+    }
+    lastPropsReadMs = nowMs;
+  }
+  if (cachedEncProps.empty() || cachedSignature.empty()) {
+    return;
+  }
+  int turn = readTurnFromGameStore();
+  if (turn < 0) turn = 0;
+  float cbX = hasSavedCueBallPos ? savedCueBallX : -0.5f;
+  float cbY = hasSavedCueBallPos ? savedCueBallY : 0.0f;
+  int blobCapacity = (int)cachedEncProps.size() + (int)cachedSignature.size() + 512;
+  uint8_t *blobBuf = ensureBuffer(ghostWorkBuf, ghostWorkBufCapacity, blobCapacity);
+  if (!blobBuf) return;
+  int blobLen = buildBlobFromScratch(blobBuf, blobCapacity,
+                                    encBytes, encLen,
+                                    cachedEncProps, cachedSignature,
+                                    turn, capturedGameId,
+                                    cbX, cbY);
+  void *arrKlass = capturedRustBridgeKlass;
+  if (!arrKlass) {
+    void **pBK = reinterpret_cast<void **>(il2cppBase + g_cachedBssByteArrayKlass);
+    arrKlass = *pBK;
+  }
+  if (!arrKlass) return;
+  int ghostArrNeeded = 0x20 + blobLen + 16;
+  uint8_t *ghostArr =
+      ensureBuffer(ghostArrBuf, ghostArrBufCapacity, ghostArrNeeded);
+  if (!ghostArr) return;
+  memset(ghostArr, 0, 0x20);
+  *reinterpret_cast<void **>(ghostArr) = arrKlass;
+  *reinterpret_cast<int *>(ghostArr + 0x18) = blobLen;
+  memcpy(ghostArr + 0x20, blobBuf, blobLen);
+  void *response = orig_RustBridgeSimulatePool(ghostArr);
+  if (response) {
+    g_hasGhostCueBallPos = false; 
+    extractTrajectoryFromMsgPackResponse(response);
+    appendTrickShotDistance();
+    if (!g_suppressGhostOverlayPush)
+      pushTrajectoryToOverlay();
+  } else {
+  }
+}
+static void buildTailPlaintext(uint8_t *out, uint8_t randOff, uint8_t brkPow,
+                               float incline) {
+  out[0] = randOff ? 0xC3 : 0xC2; 
+  out[1] = brkPow ? 0xC3 : 0xC2;  
+  out[2] = 0xCA;                  
+  writeFloatBE(&out[3], incline);
+}
+void performGhostSimulation(float dir0, float dir1, float force, float spin0,
+                            float spin1);
+void extractTrajectoryFromMsgPackResponse(void *responseByteArray);
+void pushTrajectoryToOverlay();
+void startTrainer(JNIEnv *env, jobject activity);
+static void saveAllTimestamps(JNIEnv *env);
+static void startPreLoginWatchdog();
+struct MsgPackReader {
+  const uint8_t *data;
+  int len;
+  int pos;
+  MsgPackReader(const uint8_t *d, int l) : data(d), len(l), pos(0) {}
+  bool hasData() const { return pos < len; }
+  uint8_t peek() const { return data[pos]; }
+  uint8_t readU8() { return data[pos++]; }
+  uint16_t readU16BE() {
+    uint16_t v = (data[pos] << 8) | data[pos + 1];
+    pos += 2;
+    return v;
+  }
+  uint32_t readU32BE() {
+    uint32_t v = ((uint32_t)data[pos] << 24) | ((uint32_t)data[pos + 1] << 16) |
+                 ((uint32_t)data[pos + 2] << 8) | data[pos + 3];
+    pos += 4;
+    return v;
+  }
+  float readFloat32() {
+    uint32_t bits = readU32BE();
+    float f;
+    memcpy(&f, &bits, 4);
+    return f;
+  }
+  int readArrayLen() {
+    uint8_t b = readU8();
+    if ((b & 0xF0) == 0x90)
+      return b & 0x0F; 
+    if (b == 0xDC)
+      return readU16BE(); 
+    if (b == 0xDD)
+      return (int)readU32BE(); 
+    return -1;                 
+  }
+  float readNumericAsFloat() {
+    uint8_t b = peek();
+    if (b == 0xCA) {
+      pos++;
+      return readFloat32();
+    } 
+    if (b == 0xCB) {
+      pos++;
+      uint32_t lo, hi;
+      hi = readU32BE();
+      lo = readU32BE();
+      double d;
+      uint64_t bits = ((uint64_t)hi << 32) | lo;
+      memcpy(&d, &bits, 8);
+      return (float)d;
+    } 
+    if (b <= 0x7F) {
+      pos++;
+      return (float)b;
+    } 
+    if (b >= 0xE0) {
+      pos++;
+      return (float)(int8_t)b;
+    } 
+    if (b == 0xCC) {
+      pos++;
+      return (float)readU8();
+    } 
+    if (b == 0xCD) {
+      pos++;
+      return (float)readU16BE();
+    } 
+    if (b == 0xCE) {
+      pos++;
+      return (float)readU32BE();
+    } 
+    if (b == 0xD0) {
+      pos++;
+      return (float)(int8_t)readU8();
+    } 
+    if (b == 0xD1) {
+      pos++;
+      return (float)(int16_t)readU16BE();
+    } 
+    if (b == 0xD2) {
+      pos++;
+      return (float)(int32_t)readU32BE();
+    } 
+    pos++;
+    return 0.0f; 
+  }
+  double readNumericAsDouble() {
+    uint8_t b = peek();
+    if (b == 0xCB) {
+      pos++;
+      uint32_t hi = readU32BE();
+      uint32_t lo = readU32BE();
+      double d;
+      uint64_t bits = ((uint64_t)hi << 32) | lo;
+      memcpy(&d, &bits, 8);
+      return d; 
+    } 
+    if (b == 0xCA) {
+      pos++;
+      return (double)readFloat32(); 
+    } 
+    return (double)readNumericAsFloat();
+  }
+  void skipElement() {
+    if (pos >= len)
+      return;
+    uint8_t b = readU8();
+    if (b <= 0x7F || b >= 0xE0)
+      return;
+    if ((b & 0xE0) == 0xA0) {
+      pos += (b & 0x1F);
+      return;
+    }
+    if ((b & 0xF0) == 0x80) {
+      int n = b & 0x0F;
+      for (int i = 0; i < n * 2; i++)
+        skipElement();
+      return;
+    }
+    if ((b & 0xF0) == 0x90) {
+      int n = b & 0x0F;
+      for (int i = 0; i < n; i++)
+        skipElement();
+      return;
+    }
+    switch (b) {
+    case 0xC0:
+    case 0xC2:
+    case 0xC3:
+      return; 
+    case 0xC4:
+      pos += readU8();
+      return; 
+    case 0xC5:
+      pos += readU16BE();
+      return; 
+    case 0xC6:
+      pos += readU32BE();
+      return; 
+    case 0xCA:
+      pos += 4;
+      return; 
+    case 0xCB:
+      pos += 8;
+      return; 
+    case 0xCC:
+      pos += 1;
+      return; 
+    case 0xCD:
+      pos += 2;
+      return; 
+    case 0xCE:
+      pos += 4;
+      return; 
+    case 0xCF:
+      pos += 8;
+      return; 
+    case 0xD0:
+      pos += 1;
+      return; 
+    case 0xD1:
+      pos += 2;
+      return; 
+    case 0xD2:
+      pos += 4;
+      return; 
+    case 0xD3:
+      pos += 8;
+      return; 
+    case 0xD9:
+      pos += readU8();
+      return; 
+    case 0xDA:
+      pos += readU16BE();
+      return; 
+    case 0xDB:
+      pos += readU32BE();
+      return; 
+    case 0xDC: {
+      int n = readU16BE();
+      for (int i = 0; i < n; i++)
+        skipElement();
+      return;
+    } 
+    case 0xDD: {
+      int n = (int)readU32BE();
+      for (int i = 0; i < n; i++)
+        skipElement();
+      return;
+    } 
+    case 0xDE: {
+      int n = readU16BE();
+      for (int i = 0; i < n * 2; i++)
+        skipElement();
+      return;
+    } 
+    case 0xDF: {
+      int n = (int)readU32BE();
+      for (int i = 0; i < n * 2; i++)
+        skipElement();
+      return;
+    } 
+    default:
+      return; 
+    }
+  }
+};
+static bool findShotInfoInRustBridgeArray(const uint8_t *fullReq, int fullLen,
+                                          const uint8_t *encBytes) {
+  for (int i = 0; i < fullLen - 3; i++) {
+    if (fullReq[i] == 0xDC && fullReq[i + 1] == 0x00 &&
+        fullReq[i + 2] == 0x33) {
+      int p = i + 3;
+      bool match = true;
+      for (int j = 0; j < 51; j++) {
+        if (p >= fullLen) {
+          match = false;
+          break;
+        }
+        uint8_t b = fullReq[p];
+        uint8_t val;
+        int elemSize;
+        if (b <= 0x7F) {
+          val = b;
+          elemSize = 1;
+        } else if (b == 0xCC && p + 1 < fullLen) {
+          val = fullReq[p + 1];
+          elemSize = 2;
+        } else {
+          match = false;
+          break;
+        }
+        if (val != encBytes[j]) {
+          match = false;
+          break;
+        }
+        p += elemSize;
+      }
+      if (match) {
+        shotInfoMsgpackOffset = i;
+        shotInfoSectionEnd = p;
+        return true;
+      }
+    }
+  }
+  for (int i = 0; i < fullLen - 53; i++) {
+    if (fullReq[i] == 0xC4 && fullReq[i + 1] == 0x33) {
+      bool match = true;
+      for (int j = 0; j < 51; j++) {
+        if (fullReq[i + 2 + j] != encBytes[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) {
+        shotInfoMsgpackOffset = i;
+        shotInfoSectionEnd = i + 2 + 51;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+void *my_RustBridgeSimulatePool(void *byteArray) {
+  STEALTH_ANTI_FRIDA(checkProcMaps, 4700)
+  STEALTH_ANTI_FRIDA(checkRootIndicators, 6100)
+  if (byteArray && lastCapturedShotInfo.valid) {
+    bool wasKeystreamShot = keystreamJustDerived;
+    keystreamJustDerived = false; 
+    auto arr = reinterpret_cast<uintptr_t>(byteArray);
+    int arrLen = *reinterpret_cast<int *>(arr + 0x18);
+    auto *arrData = reinterpret_cast<uint8_t *>(arr + 0x20);
+    if (arrLen > 1000 && arrLen < 50000) {
+      std::lock_guard<std::mutex> lock(blobMutex);
+      capturedRustBridgeKlass = *reinterpret_cast<void **>(arr);
+      if (capturedRustBridgeData)
+        free(capturedRustBridgeData);
+      capturedRustBridgeData = (uint8_t *)malloc(arrLen);
+      memcpy(capturedRustBridgeData, arrData, arrLen);
+      capturedRustBridgeLen = arrLen;
+      if (hasGhostData) {
+        if (wasKeystreamShot) {
+          if (findShotInfoInRustBridgeArray(capturedRustBridgeData,
+                                            capturedRustBridgeLen,
+                                            ghostOrigEncBytes)) {
+            hasRustBridgeData = true;
+            blobIsFromOurShot = true;
+          } else {
+          }
+        } else {
+          bool found = false;
+          for (int i = 0; i < capturedRustBridgeLen - 3; i++) {
+            if (capturedRustBridgeData[i] == 0xDC &&
+                capturedRustBridgeData[i + 1] == 0x00 &&
+                capturedRustBridgeData[i + 2] == 0x33) {
+              int p = i + 3;
+              bool valid = true;
+              for (int j = 0; j < 51 && valid; j++) {
+                if (p >= capturedRustBridgeLen) {
+                  valid = false;
+                  break;
+                }
+                uint8_t b = capturedRustBridgeData[p];
+                if (b <= 0x7F)
+                  p += 1;
+                else if (b == 0xCC && p + 1 < capturedRustBridgeLen)
+                  p += 2;
+                else
+                  valid = false;
+              }
+              if (valid) {
+                shotInfoMsgpackOffset = i;
+                shotInfoSectionEnd = p;
+                hasRustBridgeData = true;
+                blobIsFromOurShot = false;
+                found = true;
+                break;
+              }
+            }
+          }
+          if (!found) {
+          }
+        }
+      }
+      lastPropsReadMs = 0;
+    }
+  }
+  if (byteArray) {
+    lastPropsReadMs = 0;
+    if (!capturedRustBridgeKlass) {
+      auto arr = reinterpret_cast<uintptr_t>(byteArray);
+      capturedRustBridgeKlass = *reinterpret_cast<void **>(arr);
+    }
+  }
+  void *result = nullptr;
+  if (orig_RustBridgeSimulatePool) {
+    result = orig_RustBridgeSimulatePool(byteArray);
+  }
+  if (result) {
+    auto respArr = reinterpret_cast<uintptr_t>(result);
+    int respLen = *reinterpret_cast<int *>(respArr + 0x18);
+    auto *respData = reinterpret_cast<uint8_t *>(respArr + 0x20);
+    if (respLen > 100) {
+      MsgPackReader reader(respData, respLen);
+      int outerLen = reader.readArrayLen();
+      if (outerLen >= 7) {
+        for (int i = 0; i < 6; i++)
+          reader.skipElement();
+        int sceneLen = reader.readArrayLen();
+        if (sceneLen >= 1) {
+          int ballsCount = reader.readArrayLen();
+          for (int b = 0; b < ballsCount; b++) {
+            int ballFields = reader.readArrayLen(); 
+            if (ballFields >= 3) {
+              int centerLen = reader.readArrayLen();
+              float cx = 0, cy = 0;
+              if (centerLen >= 2) {
+                cx = reader.readNumericAsFloat();
+                cy = reader.readNumericAsFloat();
+                for (int c = 2; c < centerLen; c++)
+                  reader.skipElement();
+              }
+              reader.skipElement();
+              int ballNum = (int)reader.readNumericAsFloat();
+              if (ballNum == 0) {
+                savedCueBallX = cx;
+                savedCueBallY = cy;
+                hasSavedCueBallPos = true;
+                break;
+              }
+            } else {
+              for (int f = 0; f < ballFields; f++)
+                reader.skipElement();
+            }
+          }
+        }
+      }
+    }
+  }
+  return result;
+}
+void *my_SimulateShootIt(void *byteArray) {
+  if (g_shootitIsOurCall) {
+    return orig_SimulateShootIt ? orig_SimulateShootIt(byteArray) : nullptr;
+  }
+  if (byteArray) {
+    auto arr = reinterpret_cast<uintptr_t>(byteArray);
+    int arrLen = *reinterpret_cast<int *>(arr + 0x18);
+    auto *arrData = reinterpret_cast<uint8_t *>(arr + 0x20);
+    if (arrLen > 50 && arrLen < 100000) {
+      if (!g_shootitSceneKlass) {
+        g_shootitSceneKlass = *reinterpret_cast<void **>(arr);
+      }
+      if (g_shootitSceneBlob) free(g_shootitSceneBlob);
+      g_shootitSceneBlob = (uint8_t *)malloc(arrLen);
+      memcpy(g_shootitSceneBlob, arrData, arrLen);
+      g_shootitSceneBlobLen = arrLen;
+      if (arrData[0] == 0x95) { 
+        MsgPackReader walker(arrData, arrLen);
+        walker.readU8(); 
+        for (int i = 0; i < 3; i++) walker.skipElement();
+        int siOff = walker.pos; 
+        g_shootitShotInfoOff = siOff;
+        if (siOff < arrLen && arrData[siOff] == 0x93) { 
+          if (siOff + 1 < arrLen && arrData[siOff + 1] == 0x92) { 
+            if (siOff + 2 < arrLen && arrData[siOff + 2] == 0xCA) { 
+              g_shootitDirXOff = siOff + 3; 
+              if (siOff + 7 < arrLen && arrData[siOff + 7] == 0xCA) {
+                g_shootitDirYOff = siOff + 8;
+              }
+            }
+          }
+          int pidOff = siOff + 12;
+          if (pidOff < arrLen) {
+            g_shootitPuckIdOff = pidOff;
+            uint8_t pb = arrData[pidOff];
+            int forceTagOff = (pb <= 0x7F) ? pidOff + 1 : (pb == 0xCC ? pidOff + 2 : -1);
+            if (forceTagOff > 0 && forceTagOff < arrLen && arrData[forceTagOff] == 0xCA) {
+              g_shootitForceOff = forceTagOff + 1;
+            }
+          }
+        }
+        if (g_shootitDirXOff >= 0 && g_shootitDirYOff >= 0 &&
+            g_shootitForceOff >= 0 && g_shootitPuckIdOff >= 0) {
+          g_shootitReady = true;
+          if (arrLen > 139) {
+            if (arrData[130] == 0xCA) g_shootitPuckRadius = readFloatBE(&arrData[131]);
+            if (arrData[135] == 0xCA) g_shootitBallRadius = readFloatBE(&arrData[136]);
+          }
+        }
+      }
+    }
+  }
+  return orig_SimulateShootIt ? orig_SimulateShootIt(byteArray) : nullptr;
+}
+static bool readShootItBSSBool(int fieldOffset) {
+  if (!il2cppBase) return false;
+  void **pClassRef = reinterpret_cast<void **>(il2cppBase + g_cachedBssShootitClassRef);
+  if (!pClassRef) return false;
+  void *classRef = *pClassRef;
+  if (!classRef) return false;
+  void *statics = *reinterpret_cast<void **>(classRef);
+  if (!statics) return false;
+  void *bss = *reinterpret_cast<void **>((uintptr_t)statics + 0xB8);
+  if (!bss) return false;
+  return *reinterpret_cast<uint8_t *>((uintptr_t)bss + fieldOffset) != 0;
+}
+static int readShootItBSSInt(int fieldOffset) {
+  if (!il2cppBase) return -1;
+  void **pClassRef = reinterpret_cast<void **>(il2cppBase + g_cachedBssShootitClassRef);
+  if (!pClassRef) return -1;
+  void *classRef = *pClassRef;
+  if (!classRef) return -1;
+  void *statics = *reinterpret_cast<void **>(classRef);
+  if (!statics) return -1;
+  void *bss = *reinterpret_cast<void **>((uintptr_t)statics + 0xB8);
+  if (!bss) return -1;
+  return *reinterpret_cast<int *>((uintptr_t)bss + fieldOffset);
+}
+static bool shootitShouldSkip() {
+  return readShootItBSSBool(0x64) || readShootItBSSBool(0x66) || readShootItBSSBool(0x67);
+}
+static void extractShootItTrajectory(void *responseByteArray, uint32_t myPlayerIdx, uint32_t puckId);
+typedef void (*GetPositionAndRotation_t)(void *transform, float *outPos, float *outRot);
+static GetPositionAndRotation_t GetPositionAndRotation_func;
+static void refreshShootItSceneInBlob(uint8_t *buf) {
+  if (!il2cppBase) return;
+  void **pClassRef = reinterpret_cast<void **>(il2cppBase + g_cachedBssShootitClassRef);
+  if (!pClassRef) return;
+  void *classRef = *pClassRef;
+  if (!classRef) return;
+  void *statics = *reinterpret_cast<void **>(classRef);
+  if (!statics) return;
+  void *bss = *reinterpret_cast<void **>((uintptr_t)statics + 0xB8);
+  if (!bss) return;
+  void *sceneState = *reinterpret_cast<void **>((uintptr_t)bss + 88);
+  if (!sceneState) return;
+  void *pucksArr = *reinterpret_cast<void **>((uintptr_t)sceneState + 0x10);
+  void *ball = *reinterpret_cast<void **>((uintptr_t)sceneState + 0x18);
+  if (!pucksArr || !ball) return;
+  int numPucks = *reinterpret_cast<int *>((uintptr_t)pucksArr + 0x18);
+  if (numPucks != 10) return; 
+  void *ballTransform = *reinterpret_cast<void **>((uintptr_t)bss + 0x8);
+  if (ballTransform && GetPositionAndRotation_func) {
+    float outPos[3] = {0};
+    float outRot[4] = {0};
+    GetPositionAndRotation_func(ballTransform, outPos, outRot);
+    float unityWorldY = outPos[1];
+    float simLocalY = *reinterpret_cast<float *>((uintptr_t)ball + 0x18);
+    g_shootitDynamicYOffset = simLocalY - unityWorldY;
+  }
+  uint8_t *dst = buf + 145; 
+  *dst++ = 0x92;
+  *dst++ = 0x9A;
+  for (int i = 0; i < 10; i++) {
+    void *puck = *reinterpret_cast<void **>((uintptr_t)pucksArr + 0x20 + i * 8);
+    if (!puck) return;
+    int id = *reinterpret_cast<int *>((uintptr_t)puck + 0x10);
+    float px = *reinterpret_cast<float *>((uintptr_t)puck + 0x14);
+    float py = *reinterpret_cast<float *>((uintptr_t)puck + 0x18);
+    *dst++ = 0x92;
+    *dst++ = (uint8_t)(id & 0x7F);
+    *dst++ = 0x92;
+    *dst++ = 0xCA; writeFloatBE(dst, px); dst += 4;
+    *dst++ = 0xCA; writeFloatBE(dst, py); dst += 4;
+  }
+  {
+    int id = *reinterpret_cast<int *>((uintptr_t)ball + 0x10);
+    float px = *reinterpret_cast<float *>((uintptr_t)ball + 0x14);
+    float py = *reinterpret_cast<float *>((uintptr_t)ball + 0x18);
+    *dst++ = 0x92;
+    *dst++ = (uint8_t)(id & 0x7F);
+    *dst++ = 0x92;
+    *dst++ = 0xCA; writeFloatBE(dst, px); dst += 4;
+    *dst++ = 0xCA; writeFloatBE(dst, py); dst += 4;
+  }
+}
+static void performShootItGhostSim(float dirX, float dirY, float force,
+                                   uint32_t puckId, uint32_t myPlayerIdx) {
+  if (g_shootitPredicting || !g_shootitReady || !g_shootitSceneBlob) return;
+  if (!orig_SimulateShootIt || !g_shootitSceneKlass) return;
+  g_shootitPredicting = true;
+  float dx = dirX;
+  float dy = dirY;
+  float f = fmaxf(0.0f, fminf(1.0f, force));
+  int blobLen = g_shootitSceneBlobLen;
+  uint8_t *blob = ensureBuffer(siGhostWorkBuf, siGhostWorkBufCap, blobLen);
+  if (!blob) { g_shootitPredicting = false; return; }
+  memcpy(blob, g_shootitSceneBlob, blobLen);
+  refreshShootItSceneInBlob(blob);
+  int currentTurn = readShootItBSSInt(64); 
+  if (currentTurn >= 0 && currentTurn <= 127 && blobLen > 308) {
+    blob[308] = (uint8_t)currentTurn; 
+  }
+  writeFloatBE(&blob[g_shootitDirXOff], dx);
+  writeFloatBE(&blob[g_shootitDirYOff], dy);
+  writeFloatBE(&blob[g_shootitForceOff], f);
+  blob[g_shootitPuckIdOff] = (uint8_t)(puckId & 0x7F);
+  int arrNeeded = 0x20 + blobLen + 16;
+  uint8_t *ghostArr = ensureBuffer(siGhostArrBuf, siGhostArrBufCap, arrNeeded);
+  if (!ghostArr) { g_shootitPredicting = false; return; }
+  memset(ghostArr, 0, 0x20);
+  *reinterpret_cast<void **>(ghostArr) = g_shootitSceneKlass;
+  *reinterpret_cast<int *>(ghostArr + 0x18) = blobLen;
+  memcpy(ghostArr + 0x20, blob, blobLen);
+  g_shootitIsOurCall = true;
+  void *response = orig_SimulateShootIt(ghostArr);
+  g_shootitIsOurCall = false;
+  if (response) {
+    extractShootItTrajectory(response, myPlayerIdx, puckId);
+    pushTrajectoryToOverlay();
+  }
+  g_shootitPredicting = false;
+}
+void my_OnControllerInputUpdate(void *instance, float dirX, float dirY,
+                                float force, void *methodInfo) {
+  if (orig_OnControllerInputUpdate)
+    orig_OnControllerInputUpdate(instance, dirX, dirY, force, methodInfo);
+  if (!g_shootitPredEnabled || !g_shootitReady) return;
+  if (force <= 0.001f) return;
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  uint64_t nowMs = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+  if (nowMs - g_shootitLastPredMs < SHOOTIT_THROTTLE_MS) return;
+  g_shootitLastPredMs = nowMs;
+  if (shootitShouldSkip()) return;
+  uint32_t puckId = 0;
+  if (instance) {
+    puckId = *reinterpret_cast<uint32_t *>((uintptr_t)instance + 0x50);
+  }
+  uint32_t myIdx = GetMyPlayerIndex_func ? GetMyPlayerIndex_func() : 0;
+  performShootItGhostSim(dirX, dirY, force, puckId, myIdx);
+}
+struct Vector3 {
+  float x;
+  float y;
+  float z;
+};
+static inline Vector3 v3add(Vector3 a, Vector3 b) { return {a.x+b.x, a.y+b.y, a.z+b.z}; }
+static inline Vector3 v3sub(Vector3 a, Vector3 b) { return {a.x-b.x, a.y-b.y, a.z-b.z}; }
+static inline Vector3 v3scale(Vector3 v, float s) { return {v.x*s, v.y*s, v.z*s}; }
+static inline float   v3dot(Vector3 a, Vector3 b) { return a.x*b.x + a.y*b.y + a.z*b.z; }
+static inline float   v3len(Vector3 v) { return sqrtf(v3dot(v, v)); }
+static inline Vector3 v3norm(Vector3 v) {
+  float len = v3len(v);
+  if (len < 1e-8f) return {0, 0, 0};
+  return v3scale(v, 1.0f / len);
+}
+static inline Vector3 v3reflect(Vector3 d, Vector3 n) {
+  return v3sub(d, v3scale(n, 2.0f * v3dot(d, n)));
+}
+struct RaycastHit {
+  Vector3  point;      
+  Vector3  normal;     
+  uint32_t faceID;     
+  float    distance;   
+  float    uv[2];      
+  int      colliderID; 
+};
+struct Il2CppObject {
+  void *klass;
+  void *monitor;
+};
+struct Il2CppArray : Il2CppObject {
+  void *bounds;
+  size_t max_length;
+};
+template <typename T> T *il2cpp_array_get_ptr(Il2CppArray *array) {
+  return reinterpret_cast<T *>(reinterpret_cast<uintptr_t>(array) +
+                               sizeof(Il2CppArray));
+}
+struct PoolBall {
+  Il2CppObject base;
+  float centerX;
+  float centerY;
+  void *rotation;
+  int number;
+};
+struct PoolSceneInfo {
+  Il2CppObject base;
+  void *balls;
+};
+struct PoolSimulationResponse {
+  Il2CppObject base;             
+  Il2CppArray *playback_objects; 
+  void *collisions;              
+  void *pottings;                
+  int time;                      
+  int turn;                      
+  int iterations;                
+  PoolSceneInfo *scene_info;     
+  bool full_simulation;          
+};
+typedef void *(*GetMainCamera_t)();
+typedef Vector3 (*WorldToScreenPoint_t)(void *cameraInstance, Vector3 worldPos,
+                                        void *methodInfo);
+typedef int (*GetPixelHeight_t)(void *instance, void *methodInfo);
+typedef PoolSimulationResponse *(*PoolSimulate_t)(void *simulationRequest,
+                                                  void *methodInfo);
+PoolSimulate_t orig_PoolSimulate = nullptr;
+static GetMainCamera_t GetMainCamera_func = nullptr;
+static WorldToScreenPoint_t WorldToScreenPoint_func = nullptr;
+static GetPixelHeight_t GetPixelHeight_func = nullptr;
+static bool tryReadTrickShotRawDouble(void *jtoken, double *outValue) {
+  if (!jtoken || !outValue)
+    return false;
+  void *holder = *reinterpret_cast<void **>(reinterpret_cast<uintptr_t>(jtoken) + 0x38);
+  if (!holder)
+    return false;
+  double rawValue =
+      *reinterpret_cast<double *>(reinterpret_cast<uintptr_t>(holder) + 0x10);
+  if (!std::isfinite(rawValue))
+    return false;
+  *outValue = rawValue;
+  return true;
+}
+__attribute__((noinline)) static float my_JTokenValueFloat(void *jtoken,
+                                                           void *methodInfo) {
+  if (il2cppBase && jtoken) {
+    uintptr_t returnAddr = reinterpret_cast<uintptr_t>(
+        __builtin_extract_return_addr(__builtin_return_address(0)));
+    if (returnAddr >= il2cppBase) {
+      uintptr_t returnRva = returnAddr - il2cppBase;
+      double rawValue = 0.0;
+      if (tryReadTrickShotRawDouble(jtoken, &rawValue)) {
+        if (returnRva == kRvaTrickShotTargetXReturn) {
+          g_trickShotTargetX = rawValue;
+          g_trickShotCapturedXThisState = true;
+        } else if (returnRva == kRvaTrickShotTargetZReturn) {
+          g_trickShotTargetZ = rawValue;
+          g_trickShotCapturedZThisState = true;
+        }
+      }
+    }
+  }
+  return orig_JTokenValueFloat ? orig_JTokenValueFloat(jtoken, methodInfo)
+                               : 0.0f;
+}
+static void my_TrickShotOnStateChange(void *self, void *newGameState) {
+  g_trickShotCapturedXThisState = false;
+  g_trickShotCapturedZThisState = false;
+  if (orig_TrickShotOnStateChange)
+    orig_TrickShotOnStateChange(self, newGameState);
+  bool targetVisible = *(bool *)((uintptr_t)self + 0x60);
+  if (targetVisible) {
+    bool haveRawTarget =
+        g_trickShotCapturedXThisState && g_trickShotCapturedZThisState;
+    if (!haveRawTarget) {
+      void *targetTransform = *(void **)((uintptr_t)self + 0x30);
+      if (targetTransform && GetPositionAndRotation_func) {
+        float outPos[3], outRot[4];
+        GetPositionAndRotation_func(targetTransform, outPos, outRot);
+        g_trickShotTargetX = (double)outPos[0]; 
+        g_trickShotTargetZ = (double)outPos[2]; 
+        haveRawTarget = true;
+      }
+    }
+    g_isInTrickShotMode = haveRawTarget;
+  } else {
+    g_isInTrickShotMode = false;
+  }
+}
+static void appendTrickShotDistance() {
+  if (!g_isInTrickShotMode || !g_hasGhostCueBallPos)
+    return;
+  void *cam = GetMainCamera_func ? GetMainCamera_func() : nullptr;
+  if (!cam || !WorldToScreenPoint_func)
+    return;
+  int sh = GetPixelHeight_func ? GetPixelHeight_func(cam, nullptr) : 1080;
+  double dist = computeGhostTargetDistanceExact();
+  g_lastTrickShotDistanceDisplay.store(dist, std::memory_order_relaxed);
+  Vector3 wp = {(float)g_trickShotTargetX, savedTableWorldY,
+                (float)g_trickShotTargetZ};
+  Vector3 sp = WorldToScreenPoint_func(cam, wp, nullptr);
+  float ay = (float)sh - sp.y;
+  {
+    std::lock_guard<std::mutex> lock(trajectoryMutex);
+    cachedTrajectoryScreenCoords.push_back(DIST_MARKER);
+    cachedTrajectoryScreenCoords.push_back(sp.x);
+    cachedTrajectoryScreenCoords.push_back(ay);
+    cachedTrajectoryScreenCoords.push_back((float)dist);
+  }
+}
+typedef bool (*SphereCast_t)(Vector3 origin, float radius, Vector3 direction,
+                             RaycastHit *hitInfo, float maxDistance, int layerMask,
+                             int queryTriggerInteraction, void *methodInfo);
+typedef void *(*GetCollider_t)(RaycastHit *hitInfo, void *methodInfo);
+typedef void *(*GetGameObject_t)(void *component, void *methodInfo);
+typedef int (*GetLayer_t)(void *gameObject, void *methodInfo);
+typedef int (*GetBallNumber_t)(void *instance, void *methodInfo);
+typedef Vector3 (*RigidbodyGetPosition_t)(void *instance, void *methodInfo);
+static SphereCast_t           SphereCast_func          = nullptr;
+static GetCollider_t          GetCollider_func         = nullptr;
+static GetGameObject_t        GetGameObject_func       = nullptr;
+static GetLayer_t             GetLayer_func            = nullptr;
+static GetBallNumber_t        GetBallNumber_func       = nullptr;
+static RigidbodyGetPosition_t RigidbodyGetPosition_func = nullptr;
+struct UIClasses {
+  jclass textViewClass = nullptr;
+  jclass gradientDrawableClass = nullptr;
+  jclass layoutParamsClass = nullptr;
+  jobject monospaceTypeface = nullptr;
+  jmethodID textViewCtor = nullptr;
+  jmethodID setText = nullptr;
+  jmethodID setTextSize = nullptr;
+  jmethodID setTextColor = nullptr;
+  jmethodID setTypeface = nullptr;
+  jmethodID setPadding = nullptr;
+  jmethodID setBackground = nullptr;
+  jmethodID gradientDrawableCtor = nullptr;
+  jmethodID setCornerRadius = nullptr;
+  jmethodID setColor = nullptr;
+  jmethodID setStroke = nullptr;
+  jmethodID layoutParamsCtor = nullptr;
+  jfieldID topMarginField = nullptr;
+  jclass overlayClass = nullptr;
+  jmethodID updateMultiPointsMethod = nullptr;
+} uiClasses;
+uintptr_t get_lib_addr(const char *lib_name) {
+  uintptr_t addr = 0;
+  char line[1024];
+  FILE *fp = fopen(procSelfMaps().c_str(), "r");
+  if (fp != nullptr) {
+    while (fgets(line, sizeof(line), fp)) {
+      if (strstr(line, lib_name) != nullptr) {
+        addr = (uintptr_t)strtoul(line, nullptr, 16);
+        break;
+      }
+    }
+    fclose(fp);
+  }
+  return addr;
+}
+void initUIClasses(JNIEnv *env, [[maybe_unused]] jobject activity) {
+  jclass tvLocal = env->FindClass("android/widget/TextView");
+  uiClasses.textViewClass = (jclass)env->NewGlobalRef(tvLocal);
+  env->DeleteLocalRef(tvLocal);
+  uiClasses.textViewCtor = env->GetMethodID(uiClasses.textViewClass, "<init>",
+                                            "(Landroid/content/Context;)V");
+  uiClasses.setText = env->GetMethodID(uiClasses.textViewClass, "setText",
+                                       "(Ljava/lang/CharSequence;)V");
+  uiClasses.setTextSize =
+      env->GetMethodID(uiClasses.textViewClass, "setTextSize", "(F)V");
+  uiClasses.setTextColor =
+      env->GetMethodID(uiClasses.textViewClass, "setTextColor", "(I)V");
+  uiClasses.setTypeface = env->GetMethodID(
+      uiClasses.textViewClass, "setTypeface", "(Landroid/graphics/Typeface;)V");
+  uiClasses.setPadding =
+      env->GetMethodID(uiClasses.textViewClass, "setPadding", "(IIII)V");
+  uiClasses.setBackground =
+      env->GetMethodID(uiClasses.textViewClass, "setBackground",
+                       "(Landroid/graphics/drawable/Drawable;)V");
+  jclass gdLocal = env->FindClass("android/graphics/drawable/GradientDrawable");
+  uiClasses.gradientDrawableClass = (jclass)env->NewGlobalRef(gdLocal);
+  env->DeleteLocalRef(gdLocal);
+  uiClasses.gradientDrawableCtor =
+      env->GetMethodID(uiClasses.gradientDrawableClass, "<init>", "()V");
+  uiClasses.setCornerRadius = env->GetMethodID(uiClasses.gradientDrawableClass,
+                                               "setCornerRadius", "(F)V");
+  uiClasses.setColor =
+      env->GetMethodID(uiClasses.gradientDrawableClass, "setColor", "(I)V");
+  uiClasses.setStroke =
+      env->GetMethodID(uiClasses.gradientDrawableClass, "setStroke", "(II)V");
+  jclass lpLocal = env->FindClass("android/widget/LinearLayout$LayoutParams");
+  uiClasses.layoutParamsClass = (jclass)env->NewGlobalRef(lpLocal);
+  env->DeleteLocalRef(lpLocal);
+  uiClasses.layoutParamsCtor =
+      env->GetMethodID(uiClasses.layoutParamsClass, "<init>", "(II)V");
+  uiClasses.topMarginField =
+      env->GetFieldID(uiClasses.layoutParamsClass, "topMargin", "I");
+  jclass typefaceClass = env->FindClass("android/graphics/Typeface");
+  jfieldID monospaceField = env->GetStaticFieldID(
+      typefaceClass, "MONOSPACE", "Landroid/graphics/Typeface;");
+  jobject monoLocal = env->GetStaticObjectField(typefaceClass, monospaceField);
+  uiClasses.monospaceTypeface = env->NewGlobalRef(monoLocal);
+  env->DeleteLocalRef(monoLocal);
+  env->DeleteLocalRef(typefaceClass);
+  jclass ovLocal = env->FindClass(decryptStr(ENC_OVERLAY_CLASS, sizeof(ENC_OVERLAY_CLASS)).c_str());
+  uiClasses.overlayClass = (jclass)env->NewGlobalRef(ovLocal);
+  env->DeleteLocalRef(ovLocal);
+  uiClasses.updateMultiPointsMethod =
+      env->GetMethodID(uiClasses.overlayClass, "updateMultiPoints", "([F)V");
+}
+jobject createStatusBox(JNIEnv *env, jobject activity, const char *initialText,
+                        jint textColor, jint borderColor) {
+  jobject textView =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring text = env->NewStringUTF(initialText);
+  env->CallVoidMethod(textView, uiClasses.setText, text);
+  env->DeleteLocalRef(text);
+  env->CallVoidMethod(textView, uiClasses.setTextSize, 10.0f);
+  env->CallVoidMethod(textView, uiClasses.setTextColor, textColor);
+  env->CallVoidMethod(textView, uiClasses.setTypeface,
+                      uiClasses.monospaceTypeface);
+  env->CallVoidMethod(textView, uiClasses.setPadding, 15, 15, 15, 15);
+  jobject background = env->NewObject(uiClasses.gradientDrawableClass,
+                                      uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(background, uiClasses.setCornerRadius, 10.0f);
+  env->CallVoidMethod(background, uiClasses.setColor, 0xFF1A1A1A);
+  env->CallVoidMethod(background, uiClasses.setStroke, 2, borderColor);
+  env->CallVoidMethod(textView, uiClasses.setBackground, background);
+  return textView;
+}
+void addStatusBox(JNIEnv *env, jobject container, jobject statusBox) {
+  jclass linearLayoutClass = env->FindClass("android/widget/LinearLayout");
+  jmethodID addView = env->GetMethodID(
+      linearLayoutClass, "addView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  jobject params = env->NewObject(uiClasses.layoutParamsClass,
+                                  uiClasses.layoutParamsCtor, -1, -2);
+  env->SetIntField(params, uiClasses.topMarginField, 10);
+  env->CallVoidMethod(container, addView, statusBox, params);
+}
+void updateTextView(JNIEnv *env, jobject textView, const char *message) {
+  if (textView == nullptr)
+    return;
+  std::lock_guard<std::mutex> lock(g_uiTextMutex);
+  if (textView == powerTextView)              { g_pendingPowerText = message; g_dirtyPower = true; }
+  else if (textView == spinTextView)           { g_pendingSpinText = message; g_dirtySpin = true; }
+  else if (textView == directionTextView)      { g_pendingDirText = message; g_dirtyDir = true; }
+  else if (textView == alphaTextView)          { g_pendingAlphaText = message; g_dirtyAlpha = true; }
+  else if (textView == previewPowerTextView)   { g_pendingPreviewPowerText = message; g_dirtyPreviewPower = true; }
+  else {
+    jstring newJStr = env->NewStringUTF(message);
+    env->CallVoidMethod(textView, uiClasses.setText, newJStr);
+    env->DeleteLocalRef(newJStr);
+  }
+}
+static std::atomic<bool> g_stealthDetected{false};
+static void scheduleStealthCrash() {
+  if (g_stealthDetected.exchange(true)) return; 
+  std::thread([]() {
+    usleep(2000000 + (rand() % 3000000)); 
+    g_rva_seed = 0;
+    storeRemoteSeed(0);
+    abort();
+  }).detach();
+}
+static bool syncLiveSpinFromCueController(void *poolGameController);
+void triggerGhostSimulation() {
+  if (!lastCueController)
+    return;
+  if (g_extendedLinesEnabled) return;
+  if (!g_predictionLinesEnabled) return;
+  syncLiveSpinFromCueController(lastPoolGameController);
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  uint64_t nowMs = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+  if (nowMs - lastGhostTimeMs < 33)
+    return;
+  lastGhostTimeMs = nowMs;
+  if (!hasSavedCueBallPos && lastPoolGameController && GetPositionAndRotation_func) {
+    void *bihCtrl = *reinterpret_cast<void **>(
+        reinterpret_cast<uintptr_t>(lastPoolGameController) +
+        OFF_POOLGAMECONTROLLER_BIH);
+    if (bihCtrl) {
+      void *cueBallTransform = *reinterpret_cast<void **>(
+          reinterpret_cast<uintptr_t>(bihCtrl) + OFF_BIH_CUEBALL_TRANSFORM);
+      if (cueBallTransform) {
+        float outPos[3] = {0};
+        float outRot[4] = {0};
+        GetPositionAndRotation_func(cueBallTransform, outPos, outRot);
+        if (outPos[1] > 0.1f && outPos[1] < 3.0f) { 
+          savedCueBallX = outPos[0];
+          savedCueBallY = outPos[2];
+          savedTableWorldY = outPos[1]; 
+          hasSavedCueBallPos = true;
+        }
+      }
+    }
+  }
+  auto *dir = reinterpret_cast<float *>(
+      reinterpret_cast<uintptr_t>(lastPoolGameController) + OFF_CURRENT_DIR_SYNCED);
+  float ghostDir0 = dir[0]; 
+  float ghostDir1 = dir[2]; 
+  float ghostForce = lastPower > 0.01f ? lastPower : 1.0f;
+  if (hasGhostData && hasRustBridgeData) {
+    performGhostSimulation(ghostDir0, ghostDir1, ghostForce, lastSpinX,
+                           lastSpinY);
+  } else {
+    performPreShotGhostSimulation(ghostDir0, ghostDir1, ghostForce, lastSpinX,
+                                  lastSpinY);
+  }
+}
+static std::string formatSpinStatusText(float x, float y) {
+  char msg[64];
+  snprintf(msg, sizeof(msg),
+           decryptStr(ENC_FMT_SPIN, sizeof(ENC_FMT_SPIN)).c_str(), x, y);
+  return std::string(msg);
+}
+static float clampPreviewPowerPctValue(float powerPct);
+static void normalizeDirectionXZ(float *dirX, float *dirZ);
+static void applySpinSearchValue(void *poolGameController, float spinX,
+                                 float spinY);
+static void updateSpinStatusText(float x, float y) {
+  std::string msg = formatSpinStatusText(x, y);
+  withJNIEnv([&](JNIEnv *env) { updateTextView(env, spinTextView, msg.c_str()); });
+}
+static void rememberPreferredSpin(float x, float y) {
+  normalizeSpinToUnitDisk(&x, &y);
+  g_hasPreferredSpin = true;
+  g_preferredSpinX = x;
+  g_preferredSpinY = y;
+  lastSpinX = x;
+  lastSpinY = y;
+  updateSpinStatusText(x, y);
+}
+static void rememberPreferredDirection(float dirX, float dirZ) {
+  (void)dirX;
+  (void)dirZ;
+}
+static void rememberPreferredPower(float powerPct) {
+  (void)powerPct;
+}
+static void resetCachedSpinState(bool clearCachedControllers) {
+  lastSpinX = 0.0f;
+  lastSpinY = 0.0f;
+  g_hasPreferredSpin = false;
+  g_preferredSpinX = 0.0f;
+  g_preferredSpinY = 0.0f;
+  g_hasPreferredShot = false;
+  g_preferredShot = SpinSearchShotState{};
+  if (clearCachedControllers) {
+    lastCueController = nullptr;
+    lastPoolGameController = nullptr;
+  }
+  updateSpinStatusText(lastSpinX, lastSpinY);
+}
+static bool syncLiveSpinFromCueController(void *poolGameController) {
+  void *cueCtrl = lastCueController;
+  if (poolGameController) {
+    lastPoolGameController = poolGameController;
+    void *resolvedCueCtrl = *reinterpret_cast<void **>(
+        reinterpret_cast<uintptr_t>(poolGameController) + OFF_CUE_CONTROLLER);
+    if (resolvedCueCtrl)
+      cueCtrl = resolvedCueCtrl;
+  }
+  if (!cueCtrl)
+    return false;
+  lastCueController = cueCtrl;
+  auto *spin = reinterpret_cast<float *>(
+      reinterpret_cast<uintptr_t>(cueCtrl) + OFF_SPIN_OFFSET);
+  float liveSpinX = spin[0];
+  float liveSpinY = spin[1];
+  normalizeSpinToUnitDisk(&liveSpinX, &liveSpinY);
+  bool changed = fabsf(liveSpinX - lastSpinX) > 1e-6f ||
+                 fabsf(liveSpinY - lastSpinY) > 1e-6f;
+  lastSpinX = liveSpinX;
+  lastSpinY = liveSpinY;
+  if (changed)
+    updateSpinStatusText(liveSpinX, liveSpinY);
+  return true;
+}
+static float computeSignedAimDeltaDeg(float fromX, float fromZ, float toX,
+                                      float toZ) {
+  float fromLenSq = fromX * fromX + fromZ * fromZ;
+  float toLenSq = toX * toX + toZ * toZ;
+  if (fromLenSq <= 1e-12f || toLenSq <= 1e-12f)
+    return 0.0f;
+  float crossXZ = fromX * toZ - fromZ * toX;
+  float dotXZ = fromX * toX + fromZ * toZ;
+  return atan2f(crossXZ, dotXZ) * (180.0f / (float)M_PI);
+}
+static double computeGhostTargetDistanceExact() {
+  if (!g_hasGhostCueBallPos)
+    return 1e9;
+  double dx = g_trickShotTargetX - g_lastGhostCueBallX;
+  double dz = g_trickShotTargetZ - g_lastGhostCueBallY;
+  return sqrt(dx * dx + dz * dz);
+}
+static float computeGhostTargetDistance() {
+  return (float)computeGhostTargetDistanceExact();
+}
+static void runPoolGhostSimulation(float dir0, float dir1, float force,
+                                   float spinX, float spinY) {
+  if (hasGhostData && hasRustBridgeData)
+    performGhostSimulation(dir0, dir1, force, spinX, spinY);
+  else
+    performPreShotGhostSimulation(dir0, dir1, force, spinX, spinY);
+}
+static void runPoolGhostSimulationForInstance(void *poolGameController,
+                                              float force, float spinX,
+                                              float spinY) {
+  if (!poolGameController)
+    return;
+  auto *dir = reinterpret_cast<float *>(
+      reinterpret_cast<uintptr_t>(poolGameController) + OFF_CURRENT_DIR_SYNCED);
+  runPoolGhostSimulation(dir[0], dir[2], force, spinX, spinY);
+}
+static float clampPreviewPowerPctValue(float powerPct) {
+  if (powerPct < 0.01f)
+    return 0.01f;
+  if (powerPct > 100.0f)
+    return 100.0f;
+  return powerPct;
+}
+static void normalizeDirectionXZ(float *dirX, float *dirZ) {
+  if (!dirX || !dirZ)
+    return;
+  float x = *dirX;
+  float z = *dirZ;
+  float lenSq = x * x + z * z;
+  if (lenSq <= 1e-12f) {
+    *dirX = 0.0f;
+    *dirZ = 1.0f;
+    return;
+  }
+  float invLen = 1.0f / sqrtf(lenSq);
+  *dirX = x * invLen;
+  *dirZ = z * invLen;
+}
+static void rotateDirectionXZ(float *dirX, float *dirZ, float deltaDeg) {
+  if (!dirX || !dirZ)
+    return;
+  normalizeDirectionXZ(dirX, dirZ);
+  float radians = deltaDeg * ((float)M_PI / 180.0f);
+  float cosA = cosf(radians);
+  float sinA = sinf(radians);
+  float x = (*dirX * cosA) - (*dirZ * sinA);
+  float z = (*dirX * sinA) + (*dirZ * cosA);
+  *dirX = x;
+  *dirZ = z;
+  normalizeDirectionXZ(dirX, dirZ);
+}
+static bool isBetterSpinSearchShot(const SpinSearchShotState &candidate,
+                                   const SpinSearchShotState &reference) {
+  if (candidate.targetMoved != reference.targetMoved)
+    return candidate.targetMoved;
+  if (!candidate.targetMoved)
+    return false;
+  float threshold = fmaxf(reference.dist * 1e-4f, 1e-12f);
+  return candidate.dist < reference.dist - threshold;
+}
+static bool captureLiveSpinSearchShot(void *poolGameController,
+                                      SpinSearchShotState *outShot) {
+  if (!poolGameController || !outShot)
+    return false;
+  auto *dir = reinterpret_cast<float *>(
+      reinterpret_cast<uintptr_t>(poolGameController) + OFF_CURRENT_DIR_SYNCED);
+  syncLiveSpinFromCueController(poolGameController);
+  outShot->dirX = dir[0];
+  outShot->dirZ = dir[2];
+  normalizeDirectionXZ(&outShot->dirX, &outShot->dirZ);
+  outShot->powerPct = clampPreviewPowerPctValue(previewPowerPct);
+  outShot->spinX = lastSpinX;
+  outShot->spinY = lastSpinY;
+  normalizeSpinToUnitDisk(&outShot->spinX, &outShot->spinY);
+  outShot->dist = computeGhostTargetDistance();
+  outShot->targetMoved = g_ghostTargetBallMoved;
+  return true;
+}
+static void normalizeSpinSearchShotState(SpinSearchShotState *shot) {
+  if (!shot)
+    return;
+  normalizeDirectionXZ(&shot->dirX, &shot->dirZ);
+  shot->powerPct = clampPreviewPowerPctValue(shot->powerPct);
+  normalizeSpinToUnitDisk(&shot->spinX, &shot->spinY);
+}
+static bool rememberRestoreShotIfBetter(const SpinSearchShotState &shot) {
+  SpinSearchShotState candidate = shot;
+  normalizeSpinSearchShotState(&candidate);
+  if (!candidate.targetMoved)
+    return false;
+  if (!g_hasRestoreShot || isBetterSpinSearchShot(candidate, g_restoreShot)) {
+    g_restoreShot = candidate;
+    g_hasRestoreShot = true;
+    return true;
+  }
+  return false;
+}
+static bool rememberRestoreShotFromLiveIfBetter(void *poolGameController,
+                                                float distOverride = -1.0f,
+                                                bool *targetMovedOverride = nullptr) {
+  SpinSearchShotState liveShot{};
+  if (!captureLiveSpinSearchShot(poolGameController, &liveShot))
+    return false;
+  if (distOverride >= 0.0f)
+    liveShot.dist = distOverride;
+  if (targetMovedOverride)
+    liveShot.targetMoved = *targetMovedOverride;
+  return rememberRestoreShotIfBetter(liveShot);
+}
+static void clearRestoreShotSlot() {
+  g_hasRestoreShot = false;
+  g_restoreShot = SpinSearchShotState{};
+}
+static void rememberPreferredShot(const SpinSearchShotState &shot) {
+  rememberPreferredSpin(shot.spinX, shot.spinY);
+  SpinSearchShotState normalized = shot;
+  normalizeSpinSearchShotState(&normalized);
+  g_preferredShot = normalized;
+  g_hasPreferredShot = true;
+}
+static bool rememberPreferredShotFromLive(void *poolGameController,
+                                          float powerPctOverride = -1.0f) {
+  (void)powerPctOverride;
+  if (!poolGameController)
+    return false;
+  if (!syncLiveSpinFromCueController(poolGameController))
+    return false;
+  rememberPreferredSpin(lastSpinX, lastSpinY);
+  return true;
+}
+static void simulateSpinSearchShotInternal(SpinSearchShotState *shot,
+                                           bool suppressOverlay) {
+  if (!shot)
+    return;
+  normalizeDirectionXZ(&shot->dirX, &shot->dirZ);
+  shot->powerPct = clampPreviewPowerPctValue(shot->powerPct);
+  normalizeSpinToUnitDisk(&shot->spinX, &shot->spinY);
+  bool oldSuppress = g_suppressGhostOverlayPush;
+  if (suppressOverlay)
+    g_suppressGhostOverlayPush = true;
+  runPoolGhostSimulation(shot->dirX, shot->dirZ, shot->powerPct / 100.0f,
+                         shot->spinX, shot->spinY);
+  g_suppressGhostOverlayPush = oldSuppress;
+  shot->dist = computeGhostTargetDistance();
+  shot->targetMoved = g_ghostTargetBallMoved;
+}
+static void simulateSpinSearchShot(SpinSearchShotState *shot) {
+  simulateSpinSearchShotInternal(shot, false);
+}
+static void simulateSpinSearchShotQuiet(SpinSearchShotState *shot) {
+  simulateSpinSearchShotInternal(shot, true);
+}
+static void applySpinSearchValue(void *poolGameController, float spinX,
+                                 float spinY) {
+  float clampedX = spinX;
+  float clampedY = spinY;
+  normalizeSpinToUnitDisk(&clampedX, &clampedY);
+  void *cueCtrl = lastCueController;
+  if (poolGameController) {
+    lastPoolGameController = poolGameController;
+    cueCtrl = *reinterpret_cast<void **>(
+        reinterpret_cast<uintptr_t>(poolGameController) + OFF_CUE_CONTROLLER);
+    if (cueCtrl)
+      lastCueController = cueCtrl;
+    if (orig_ApplySpin) {
+      orig_ApplySpin(poolGameController, clampedX, clampedY, nullptr);
+    } else if (cueCtrl) {
+      auto *spin = reinterpret_cast<float *>(
+          reinterpret_cast<uintptr_t>(cueCtrl) + OFF_SPIN_OFFSET);
+      spin[0] = clampedX;
+      spin[1] = clampedY;
+    }
+  } else if (cueCtrl) {
+    auto *spin = reinterpret_cast<float *>(
+        reinterpret_cast<uintptr_t>(cueCtrl) + OFF_SPIN_OFFSET);
+    spin[0] = clampedX;
+    spin[1] = clampedY;
+  }
+  rememberPreferredSpin(clampedX, clampedY);
+}
+static void writeDirectionVectorXZ(float *directionVector, float dirX,
+                                   float dirZ) {
+  if (!directionVector)
+    return;
+  directionVector[0] = dirX;
+  directionVector[1] = 0.0f;
+  directionVector[2] = dirZ;
+}
+static void syncLiveDirectionFieldsExact(void *poolGameController, float dirX,
+                                         float dirZ) {
+  if (!poolGameController)
+    return;
+  normalizeDirectionXZ(&dirX, &dirZ);
+  auto *poolDir = reinterpret_cast<float *>(
+      reinterpret_cast<uintptr_t>(poolGameController) + OFF_CURRENT_DIR_SYNCED);
+  writeDirectionVectorXZ(poolDir, dirX, dirZ);
+  void *cueCtrl = *reinterpret_cast<void **>(
+      reinterpret_cast<uintptr_t>(poolGameController) + OFF_CUE_CONTROLLER);
+  if (!cueCtrl)
+    cueCtrl = lastCueController;
+  if (!cueCtrl)
+    return;
+  lastCueController = cueCtrl;
+  auto *cueDirPrimary = reinterpret_cast<float *>(
+      reinterpret_cast<uintptr_t>(cueCtrl) + OFF_CUE_DIRECTION_PRIMARY);
+  auto *cueDirMirror = reinterpret_cast<float *>(
+      reinterpret_cast<uintptr_t>(cueCtrl) + OFF_CUE_DIRECTION_MIRROR);
+  auto *cueRayDirection = reinterpret_cast<float *>(
+      reinterpret_cast<uintptr_t>(cueCtrl) + OFF_RAY_DIRECTION);
+  writeDirectionVectorXZ(cueDirPrimary, dirX, dirZ);
+  writeDirectionVectorXZ(cueDirMirror, dirX, dirZ);
+  writeDirectionVectorXZ(cueRayDirection, dirX, dirZ);
+}
+static bool captureLiveDirectionSources(void *poolGameController, float *syncedX,
+                                        float *syncedZ, float *rayX,
+                                        float *rayZ) {
+  if (!poolGameController)
+    return false;
+  auto *poolDir = reinterpret_cast<float *>(
+      reinterpret_cast<uintptr_t>(poolGameController) + OFF_CURRENT_DIR_SYNCED);
+  float liveSyncedX = poolDir[0];
+  float liveSyncedZ = poolDir[2];
+  normalizeDirectionXZ(&liveSyncedX, &liveSyncedZ);
+  void *cueCtrl = *reinterpret_cast<void **>(
+      reinterpret_cast<uintptr_t>(poolGameController) + OFF_CUE_CONTROLLER);
+  if (!cueCtrl)
+    cueCtrl = lastCueController;
+  if (cueCtrl)
+    lastCueController = cueCtrl;
+  float liveRayX = liveSyncedX;
+  float liveRayZ = liveSyncedZ;
+  if (cueCtrl) {
+    auto *cueRayDirection = reinterpret_cast<float *>(
+        reinterpret_cast<uintptr_t>(cueCtrl) + OFF_RAY_DIRECTION);
+    liveRayX = cueRayDirection[0];
+    liveRayZ = cueRayDirection[2];
+    normalizeDirectionXZ(&liveRayX, &liveRayZ);
+  }
+  if (syncedX)
+    *syncedX = liveSyncedX;
+  if (syncedZ)
+    *syncedZ = liveSyncedZ;
+  if (rayX)
+    *rayX = liveRayX;
+  if (rayZ)
+    *rayZ = liveRayZ;
+  return true;
+}
+static bool setLiveCueDirectionExact(void *poolGameController, float dirX,
+                                     float dirZ);
+static bool applyLiveShotExact(void *poolGameController,
+                               const SpinSearchShotState &shot) {
+  if (!poolGameController)
+    return false;
+  SpinSearchShotState appliedShot = shot;
+  normalizeDirectionXZ(&appliedShot.dirX, &appliedShot.dirZ);
+  appliedShot.powerPct = clampPreviewPowerPctValue(appliedShot.powerPct);
+  normalizeSpinToUnitDisk(&appliedShot.spinX, &appliedShot.spinY);
+  previewPowerPct = appliedShot.powerPct;
+  syncPowerAutoAimUI();
+  if (!setLiveCueDirectionExact(poolGameController, appliedShot.dirX,
+                                appliedShot.dirZ))
+    return false;
+  void *cueCtrl = *reinterpret_cast<void **>(
+      reinterpret_cast<uintptr_t>(poolGameController) + OFF_CUE_CONTROLLER);
+  if (!cueCtrl)
+    cueCtrl = lastCueController;
+  if (cueCtrl) {
+    lastCueController = cueCtrl;
+    *reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(cueCtrl) + 0x64) =
+        appliedShot.dirX;
+    *reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(cueCtrl) + 0x6C) =
+        appliedShot.dirZ;
+  }
+  applySpinSearchValue(poolGameController, appliedShot.spinX,
+                       appliedShot.spinY);
+  return true;
+}
+static bool captureVerifiedAggressiveSpinLiveShot(
+    void *poolGameController, const SpinSearchShotState &requestedShot,
+    SpinSearchShotState *verifiedShot) {
+  if (!poolGameController || !verifiedShot)
+    return false;
+  SpinSearchShotState requested = requestedShot;
+  normalizeDirectionXZ(&requested.dirX, &requested.dirZ);
+  requested.powerPct = clampPreviewPowerPctValue(requested.powerPct);
+  normalizeSpinToUnitDisk(&requested.spinX, &requested.spinY);
+  SpinSearchShotState liveShot{};
+  if (!captureLiveSpinSearchShot(poolGameController, &liveShot))
+    return false;
+  liveShot.powerPct = clampPreviewPowerPctValue(liveShot.powerPct);
+  normalizeSpinToUnitDisk(&liveShot.spinX, &liveShot.spinY);
+  float syncedX = 0.0f, syncedZ = 1.0f, rayX = 0.0f, rayZ = 1.0f;
+  if (!captureLiveDirectionSources(poolGameController, &syncedX, &syncedZ,
+                                   &rayX, &rayZ))
+    return false;
+  float syncedErrorDeg = fabsf(computeSignedAimDeltaDeg(
+      syncedX, syncedZ, requested.dirX, requested.dirZ));
+  float rayErrorDeg = fabsf(computeSignedAimDeltaDeg(
+      rayX, rayZ, requested.dirX, requested.dirZ));
+  float powerError = fabsf(liveShot.powerPct - requested.powerPct);
+  float spinDx = liveShot.spinX - requested.spinX;
+  float spinDy = liveShot.spinY - requested.spinY;
+  float spinError = sqrtf(spinDx * spinDx + spinDy * spinDy);
+  if (syncedErrorDeg > AGG_SPIN_COMMIT_DIR_TOLERANCE_DEG ||
+      rayErrorDeg > AGG_SPIN_COMMIT_DIR_TOLERANCE_DEG ||
+      powerError > AGG_SPIN_COMMIT_POWER_TOLERANCE ||
+      spinError > AGG_SPIN_COMMIT_SPIN_TOLERANCE) {
+    return false;
+  }
+  liveShot.dirX = rayX;
+  liveShot.dirZ = rayZ;
+  normalizeDirectionXZ(&liveShot.dirX, &liveShot.dirZ);
+  runPoolGhostSimulationForInstance(poolGameController,
+                                    liveShot.powerPct / 100.0f,
+                                    liveShot.spinX, liveShot.spinY);
+  liveShot.dist = computeGhostTargetDistance();
+  liveShot.targetMoved = g_ghostTargetBallMoved;
+  *verifiedShot = liveShot;
+  return true;
+}
+static bool setLiveCueDirectionExact(void *poolGameController, float dirX,
+                                     float dirZ) {
+  if (!poolGameController)
+    return false;
+  normalizeDirectionXZ(&dirX, &dirZ);
+  lastPoolGameController = poolGameController;
+  void *cueCtrl = *reinterpret_cast<void **>(
+      reinterpret_cast<uintptr_t>(poolGameController) + OFF_CUE_CONTROLLER);
+  if (cueCtrl)
+    lastCueController = cueCtrl;
+  bool applied = false;
+  if (orig_RotateCue) {
+    static const int MAX_ROTATE_ATTEMPTS = 6;
+    static const float ROTATE_CONVERGENCE_DEG = 1e-5f;
+    for (int attempt = 0; attempt < MAX_ROTATE_ATTEMPTS; attempt++) {
+      auto *poolDir = reinterpret_cast<float *>(
+          reinterpret_cast<uintptr_t>(poolGameController) + OFF_CURRENT_DIR_SYNCED);
+      float delta = computeSignedAimDeltaDeg(poolDir[0], poolDir[2], dirX, dirZ);
+      if (fabsf(delta) <= ROTATE_CONVERGENCE_DEG)
+        break;
+      orig_RotateCue(poolGameController, delta, nullptr);
+    }
+    applied = true;
+  } else if (cueCtrl) {
+    applied = true;
+  }
+  return applied;
+}
+static bool commitSpinSearchShotToLiveCue(
+    void *poolGameController, const SpinSearchShotState &shot) {
+  if (!poolGameController)
+    return false;
+  SpinSearchShotState committed = shot;
+  committed.powerPct = clampPreviewPowerPctValue(committed.powerPct);
+  normalizeSpinToUnitDisk(&committed.spinX, &committed.spinY);
+  applySpinSearchValue(poolGameController, committed.spinX, committed.spinY);
+  previewPowerPct = committed.powerPct;
+  syncPowerAutoAimUI();
+  runPoolGhostSimulation(committed.dirX, committed.dirZ,
+                         committed.powerPct / 100.0f, committed.spinX,
+                         committed.spinY);
+  pushTrajectoryToOverlay();
+  g_refreshPreview.store(false);
+  committed.dist = computeGhostTargetDistance();
+  committed.targetMoved = g_ghostTargetBallMoved;
+  rememberRestoreShotIfBetter(committed);
+  rememberPreferredShot(committed);
+  return true;
+}
+static bool commitAggressiveSpinShotToLiveCue(
+    void *poolGameController, const SpinSearchShotState &shot) {
+  if (!poolGameController)
+    return false;
+  SpinSearchShotState committed = shot;
+  normalizeSpinSearchShotState(&committed);
+  if (!applyLiveShotExact(poolGameController, committed))
+    return false;
+  syncPowerAutoAimUI();
+  g_aggressiveSpinCommittedShot = committed;
+  g_aggressiveSpinHasCommittedShot = true;
+  rememberPreferredSpin(committed.spinX, committed.spinY);
+  runPoolGhostSimulation(committed.dirX, committed.dirZ,
+                         committed.powerPct / 100.0f, committed.spinX,
+                         committed.spinY);
+  pushTrajectoryToOverlay();
+  g_refreshPreview.store(false);
+  committed.dist = computeGhostTargetDistance();
+  committed.targetMoved = g_ghostTargetBallMoved;
+  rememberRestoreShotIfBetter(committed);
+  return true;
+}
+static void clearAggressiveSpinRuntimeState();
+static void finishAggressiveSpinSearch(void *poolGameController) {
+  if (poolGameController && g_aggressiveSpinHasCommittedShot) {
+    SpinSearchShotState committed = g_aggressiveSpinCommittedShot;
+    normalizeSpinSearchShotState(&committed);
+    applyLiveShotExact(poolGameController, committed);
+    syncPowerAutoAimUI();
+    rememberPreferredShot(committed);
+    runPoolGhostSimulationForInstance(poolGameController,
+                                      committed.powerPct / 100.0f,
+                                      committed.spinX, committed.spinY);
+    pushTrajectoryToOverlay();
+    g_refreshPreview.store(false);
+    armRestoreEnforceWatchdog(committed);
+  } else if (poolGameController) {
+    syncLiveSpinFromCueController(poolGameController);
+    runPoolGhostSimulationForInstance(poolGameController,
+                                      previewPowerPct / 100.0f, lastSpinX,
+                                      lastSpinY);
+    pushTrajectoryToOverlay();
+    g_refreshPreview.store(false);
+  }
+  clearAggressiveSpinRuntimeState();
+}
+static void clearSpinComboRetuneState() {
+  g_spinComboRetuneActive.store(false);
+  g_spinComboRetuneHasResult = false;
+  g_spinComboRetunePhase = 0;
+  g_spinComboRetuneNeighborIdx = 0;
+  g_spinComboRetuneBestDist = 1e9f;
+  g_spinComboRetuneCenterPower = 50.0f;
+  g_spinComboRetuneCenterDist = 1e9f;
+  g_spinComboRetuneBestNeighborDist = 1e9f;
+  g_spinComboRetuneBestNeighborDir = 0;
+  g_spinComboRetuneBestNeighborPwr = 0;
+  g_spinComboRetuneCenterShot = SpinSearchShotState{};
+  g_spinComboRetuneRoundBestShot = SpinSearchShotState{};
+  g_spinComboRetuneResultShot = SpinSearchShotState{};
+  g_spinComboRetuneRoundCap = 0;
+  g_spinComboRetuneRoundCount = 0;
+}
+static void clearAggressiveSpinRuntimeState() {
+  g_aggressiveSpinActive.store(false);
+  g_aggressiveSpinStart.store(false);
+  g_aggressiveSpinStage = AGGRESSIVE_SPIN_STAGE_SEED_SCAN;
+  g_aggressiveSpinSeedPhase = AGGRESSIVE_SPIN_SEED_PHASE_RAW_SCAN;
+  g_aggressiveSpinSeedCount = 0;
+  g_aggressiveSpinSeedIndex = 0;
+  for (int i = 0; i < AGGRESSIVE_SPIN_MAX_SEEDS; i++) {
+    g_aggressiveSpinSeedX[i] = 0.0f;
+    g_aggressiveSpinSeedY[i] = 0.0f;
+    g_aggressiveSpinRawSeedShots[i] = SpinSearchShotState{};
+    g_aggressiveSpinShakenSeedShots[i] = SpinSearchShotState{};
+    g_aggressiveSpinPromotedSeedOrder[i] = 0;
+    g_aggressiveSpinRetuneSeedOrder[i] = 0;
+  }
+  g_aggressiveSpinPromotedSeedCount = 0;
+  g_aggressiveSpinPromotedSeedIndex = 0;
+  g_aggressiveSpinRetuneSeedCount = 0;
+  g_aggressiveSpinRetuneSeedIndex = 0;
+  g_aggressiveSpinSeedPrepared = false;
+  g_aggressiveSpinRetuneStarted = false;
+  g_aggressiveSpinRefineIdx = 0;
+  g_aggressiveSpinLocalPhase = 0;
+  g_aggressiveSpinLocalNeighborIdx = 0;
+  g_aggressiveSpinBaseShot = SpinSearchShotState{};
+  g_aggressiveSpinBestShot = SpinSearchShotState{};
+  g_aggressiveSpinCommittedShot = SpinSearchShotState{};
+  g_aggressiveSpinHasCommittedShot = false;
+  g_aggressiveSpinCurrentSeedShot = SpinSearchShotState{};
+  g_aggressiveSpinCurrentShakeBestShot = SpinSearchShotState{};
+  g_aggressiveSpinLocalCenterShot = SpinSearchShotState{};
+  g_aggressiveSpinLocalRoundBestShot = SpinSearchShotState{};
+  g_aggSpinTriageBestRetuned = SpinSearchShotState{};
+  g_aggSpinTriageBestCandidate = SpinSearchShotState{};
+  g_aggSpinTriageCurrentCandidate = SpinSearchShotState{};
+  g_aggSpinTriageHasBest = false;
+  g_aggSpinTriageActive = false;
+  g_aggSpinWinnerPending = false;
+  g_aggSpinWinnerStarted = false;
+}
+static void clearSpinSearchRuntimeState() {
+  g_spinSearchActive.store(false);
+  g_spinSearchStart.store(false);
+  g_spinSearchWaitingRetune = false;
+  g_spinSearchNeighborIdx = 0;
+  g_spinSearchPhase = 0;
+  g_spinSearchBestDist = 1e9f;
+  g_spinSearchCenterDist = 1e9f;
+  g_spinSearchCenterX = 0.0f;
+  g_spinSearchCenterY = 0.0f;
+  g_spinSearchBestNeighborX = 0;
+  g_spinSearchBestNeighborY = 0;
+  g_spinSearchCenterShot = SpinSearchShotState{};
+  g_spinSearchRoundBestShot = SpinSearchShotState{};
+  clearSpinComboRetuneState();
+  clearAggressiveSpinRuntimeState();
+}
+static bool isSpinSearchOwningCue() {
+  return g_spinSearchStart.load() || g_spinSearchActive.load() ||
+         g_aggressiveSpinStart.load() || g_aggressiveSpinActive.load() ||
+         g_spinComboRetuneActive.load();
+}
+static bool startSpinComboRetune(const SpinSearchShotState &seedShot) {
+  clearSpinComboRetuneState();
+  SpinSearchShotState initialShot = seedShot;
+  simulateSpinSearchShotQuiet(&initialShot);
+  g_spinComboRetuneCenterShot = initialShot;
+  g_spinComboRetuneRoundBestShot = initialShot;
+  g_spinComboRetuneResultShot = initialShot;
+  g_spinComboRetuneBestDist = initialShot.dist;
+  g_spinComboRetuneCenterPower = initialShot.powerPct;
+  g_spinComboRetuneCenterDist = initialShot.dist;
+  g_spinComboRetuneBestNeighborDist = initialShot.dist;
+  g_spinComboRetuneBestNeighborDir = 0;
+  g_spinComboRetuneBestNeighborPwr = 0;
+  g_spinComboRetuneNeighborIdx = 0;
+  int depthCap = g_aggSpinDepthCap;
+  if (depthCap < 3)
+    depthCap = 3;
+  else if (depthCap > 6)
+    depthCap = 6;
+  if (g_aggSpinClimbMode > 0) {
+    g_spinComboRetunePhase = adaptivePhase(initialShot.dist);
+    if (g_spinComboRetunePhase > depthCap)
+      g_spinComboRetunePhase = depthCap;
+  } else {
+    g_spinComboRetunePhase = depthCap;
+  }
+  g_spinComboRetuneActive.store(true);
+  return true;
+}
+static bool startSpinComboRetuneCapped(const SpinSearchShotState &seedShot,
+                                       int roundCap) {
+  bool ok = startSpinComboRetune(seedShot);
+  if (ok) {
+    g_spinComboRetuneRoundCap = (roundCap > 0) ? roundCap : 0;
+    g_spinComboRetuneRoundCount = 0;
+  }
+  return ok;
+}
+static bool readSpinComboRetuneResult(SpinSearchShotState *outShot) {
+  if (!outShot || !g_spinComboRetuneHasResult)
+    return false;
+  *outShot = g_spinComboRetuneResultShot;
+  g_spinComboRetuneHasResult = false;
+  return true;
+}
+static int aggressiveSpinDepthCap() {
+  if (g_aggSpinDepthCap < 3)
+    return 3;
+  if (g_aggSpinDepthCap > 6)
+    return 6;
+  return g_aggSpinDepthCap;
+}
+static int aggressiveSpinStartPhase() {
+  return (g_aggSpinClimbMode > 0) ? 0 : aggressiveSpinDepthCap();
+}
+static bool isAggressiveSpinLightMode() {
+  return g_aggSpinEnableCenterInner && !g_aggSpinEnableMid &&
+         !g_aggSpinEnableOuter && aggressiveSpinDepthCap() == 3;
+}
+static bool isBetterAggressiveSpinFunnelShot(
+    const SpinSearchShotState &candidate,
+    const SpinSearchShotState &reference) {
+  if (candidate.targetMoved != reference.targetMoved)
+    return candidate.targetMoved;
+  float threshold = fmaxf(reference.dist * 1e-4f, 1e-12f);
+  return candidate.dist < reference.dist - threshold;
+}
+static float aggressiveSpinDistanceBetween(const SpinSearchShotState &a,
+                                           const SpinSearchShotState &b) {
+  float dx = a.spinX - b.spinX;
+  float dy = a.spinY - b.spinY;
+  return sqrtf(dx * dx + dy * dy);
+}
+static int aggressiveSpinPromotedSeedLimit() {
+  int depth = aggressiveSpinDepthCap();
+  if (depth <= 3)
+    return 2;
+  return g_aggressiveSpinSeedCount;
+}
+static int aggressiveSpinRetuneSeedLimit() {
+  int depth = aggressiveSpinDepthCap();
+  if (depth <= 4) {
+    int limit = (g_aggressiveSpinPromotedSeedCount + 1) / 2;
+    if (limit < 1 && g_aggressiveSpinPromotedSeedCount > 0)
+      limit = 1;
+    return limit;
+  }
+  return g_aggressiveSpinPromotedSeedCount;
+}
+static bool aggressiveSpinUseFullShakePass() {
+  return aggressiveSpinDepthCap() >= 6;
+}
+static SpinSearchShotState aggressiveSpinBestInRun() {
+  SpinSearchShotState best = g_aggressiveSpinBaseShot;
+  if (isBetterSpinSearchShot(g_aggressiveSpinBestShot, best))
+    best = g_aggressiveSpinBestShot;
+  if (isBetterSpinSearchShot(g_aggressiveSpinCommittedShot, best))
+    best = g_aggressiveSpinCommittedShot;
+  if (isBetterSpinSearchShot(g_aggressiveSpinCurrentShakeBestShot, best))
+    best = g_aggressiveSpinCurrentShakeBestShot;
+  if (isBetterSpinSearchShot(g_aggressiveSpinLocalCenterShot, best))
+    best = g_aggressiveSpinLocalCenterShot;
+  if (isBetterSpinSearchShot(g_aggressiveSpinLocalRoundBestShot, best))
+    best = g_aggressiveSpinLocalRoundBestShot;
+  if (g_aggSpinTriageHasBest &&
+      isBetterSpinSearchShot(g_aggSpinTriageBestRetuned, best))
+    best = g_aggSpinTriageBestRetuned;
+  for (int i = 0; i < g_aggressiveSpinSeedCount; i++) {
+    if (isBetterSpinSearchShot(g_aggressiveSpinRawSeedShots[i], best))
+      best = g_aggressiveSpinRawSeedShots[i];
+    if (isBetterSpinSearchShot(g_aggressiveSpinShakenSeedShots[i], best))
+      best = g_aggressiveSpinShakenSeedShots[i];
+  }
+  return best;
+}
+static void requestCancelOrClearSpinSearch() {
+  if (g_aggressiveSpinActive.load() || g_aggressiveSpinStart.load()) {
+    g_aggSpinCancelRequested.store(true);
+  } else {
+    clearSpinSearchRuntimeState();
+  }
+}
+static float aggressiveSpinLocalSlackFactor() {
+  int depth = aggressiveSpinDepthCap();
+  if (depth <= 3)
+    return 1.2f;
+  if (depth == 4)
+    return 1.35f;
+  return 1.5f;
+}
+static bool aggressiveSpinOrderContains(const int *order, int count,
+                                        int seedIndex) {
+  for (int i = 0; i < count; i++) {
+    if (order[i] == seedIndex)
+      return true;
+  }
+  return false;
+}
+static void aggressiveSpinInsertRankedSeedIndex(
+    int *order, int *count, int limit, int seedIndex,
+    const SpinSearchShotState *shots) {
+  if (!order || !count || !shots || limit <= 0)
+    return;
+  if (aggressiveSpinOrderContains(order, *count, seedIndex))
+    return;
+  int insertPos = *count;
+  while (insertPos > 0 &&
+         isBetterAggressiveSpinFunnelShot(shots[seedIndex],
+                                          shots[order[insertPos - 1]])) {
+    insertPos--;
+  }
+  if (*count < limit) {
+    for (int i = *count; i > insertPos; i--)
+      order[i] = order[i - 1];
+    order[insertPos] = seedIndex;
+    (*count)++;
+    return;
+  }
+  if (insertPos >= limit)
+    return;
+  for (int i = limit - 1; i > insertPos; i--)
+    order[i] = order[i - 1];
+  order[insertPos] = seedIndex;
+}
+static void aggressiveSpinResortSeedOrder(
+    int *order, int count, const SpinSearchShotState *shots) {
+  if (!order || !shots || count <= 1)
+    return;
+  for (int i = 1; i < count; i++) {
+    int seedIndex = order[i];
+    int pos = i;
+    while (pos > 0 &&
+           isBetterAggressiveSpinFunnelShot(shots[seedIndex],
+                                            shots[order[pos - 1]])) {
+      order[pos] = order[pos - 1];
+      pos--;
+    }
+    order[pos] = seedIndex;
+  }
+}
+static void buildAggressiveSpinPromotedSeedList() {
+  g_aggressiveSpinPromotedSeedCount = 0;
+  int limit = aggressiveSpinPromotedSeedLimit();
+  if (limit > AGGRESSIVE_SPIN_MAX_SEEDS)
+    limit = AGGRESSIVE_SPIN_MAX_SEEDS;
+  for (int i = 0; i < g_aggressiveSpinSeedCount; i++) {
+    aggressiveSpinInsertRankedSeedIndex(
+        g_aggressiveSpinPromotedSeedOrder,
+        &g_aggressiveSpinPromotedSeedCount, limit, i,
+        g_aggressiveSpinRawSeedShots);
+  }
+  if (g_aggressiveSpinSeedCount > 0 &&
+      g_aggressiveSpinRawSeedShots[0].targetMoved &&
+      !aggressiveSpinOrderContains(g_aggressiveSpinPromotedSeedOrder,
+                                   g_aggressiveSpinPromotedSeedCount, 0)) {
+    if (g_aggressiveSpinPromotedSeedCount < limit) {
+      g_aggressiveSpinPromotedSeedOrder[g_aggressiveSpinPromotedSeedCount++] = 0;
+    } else if (limit > 0) {
+      g_aggressiveSpinPromotedSeedOrder[limit - 1] = 0;
+    }
+    aggressiveSpinResortSeedOrder(g_aggressiveSpinPromotedSeedOrder,
+                                  g_aggressiveSpinPromotedSeedCount,
+                                  g_aggressiveSpinRawSeedShots);
+  }
+}
+static void buildAggressiveSpinRetuneSeedList() {
+  g_aggressiveSpinRetuneSeedCount = 0;
+  int limit = aggressiveSpinRetuneSeedLimit();
+  for (int i = 0; i < g_aggressiveSpinPromotedSeedCount; i++) {
+    int seedIndex = g_aggressiveSpinPromotedSeedOrder[i];
+    aggressiveSpinInsertRankedSeedIndex(
+        g_aggressiveSpinRetuneSeedOrder, &g_aggressiveSpinRetuneSeedCount,
+        limit, seedIndex, g_aggressiveSpinShakenSeedShots);
+  }
+}
+static bool aggressiveSpinShouldEnterLocalSearch() {
+  return isBetterSpinSearchShot(g_aggressiveSpinBestShot,
+                                g_aggressiveSpinBaseShot) &&
+         aggressiveSpinDistanceBetween(g_aggressiveSpinBestShot,
+                                       g_aggressiveSpinBaseShot) >= 0.02f;
+}
+static bool isAggressiveSpinRegionEnabled(float spinX, float spinY) {
+  float radius = sqrtf(spinX * spinX + spinY * spinY);
+  if (radius < 0.55f)
+    return g_aggSpinEnableCenterInner;
+  if (radius < 0.81f)
+    return g_aggSpinEnableMid;
+  return g_aggSpinEnableOuter;
+}
+static void appendAggressiveSpinSeed(float spinX, float spinY) {
+  normalizeSpinToUnitDisk(&spinX, &spinY);
+  for (int i = 0; i < g_aggressiveSpinSeedCount; i++) {
+    if (fabsf(g_aggressiveSpinSeedX[i] - spinX) <= 1e-6f &&
+        fabsf(g_aggressiveSpinSeedY[i] - spinY) <= 1e-6f) {
+      return;
+    }
+  }
+  if (g_aggressiveSpinSeedCount >= AGGRESSIVE_SPIN_MAX_SEEDS)
+    return;
+  g_aggressiveSpinSeedX[g_aggressiveSpinSeedCount] = spinX;
+  g_aggressiveSpinSeedY[g_aggressiveSpinSeedCount] = spinY;
+  g_aggressiveSpinSeedCount++;
+}
+static void buildAggressiveSpinSeedList(const SpinSearchShotState &startShot) {
+  g_aggressiveSpinSeedCount = 0;
+  appendAggressiveSpinSeed(startShot.spinX, startShot.spinY);
+  if (g_aggSpinEnableCenterInner) {
+    appendAggressiveSpinSeed(0.0f, 0.0f);
+    appendAggressiveSpinSeed( 0.400f,  0.000f);
+    appendAggressiveSpinSeed( 0.000f,  0.400f);
+    appendAggressiveSpinSeed(-0.400f,  0.000f);
+    appendAggressiveSpinSeed( 0.000f, -0.400f);
+    appendAggressiveSpinSeed( 0.283f,  0.283f);
+    appendAggressiveSpinSeed(-0.283f,  0.283f);
+    appendAggressiveSpinSeed(-0.283f, -0.283f);
+    appendAggressiveSpinSeed( 0.283f, -0.283f);
+    if (g_aggSpinPSpinMode >= 1) {
+      appendAggressiveSpinSeed( 0.200f,  0.000f);
+      appendAggressiveSpinSeed( 0.000f,  0.200f);
+      appendAggressiveSpinSeed(-0.200f,  0.000f);
+      appendAggressiveSpinSeed( 0.000f, -0.200f);
+      appendAggressiveSpinSeed( 0.520f,  0.000f);
+      appendAggressiveSpinSeed( 0.000f,  0.520f);
+      appendAggressiveSpinSeed(-0.520f,  0.000f);
+      appendAggressiveSpinSeed( 0.000f, -0.520f);
+      appendAggressiveSpinSeed( 0.368f,  0.368f);
+      appendAggressiveSpinSeed(-0.368f,  0.368f);
+      appendAggressiveSpinSeed(-0.368f, -0.368f);
+      appendAggressiveSpinSeed( 0.368f, -0.368f);
+    }
+    if (g_aggSpinPSpinMode >= 2) {
+      appendAggressiveSpinSeed( 0.141f,  0.141f);
+      appendAggressiveSpinSeed(-0.141f,  0.141f);
+      appendAggressiveSpinSeed(-0.141f, -0.141f);
+      appendAggressiveSpinSeed( 0.141f, -0.141f);
+    }
+  }
+  if (g_aggSpinEnableMid) {
+    appendAggressiveSpinSeed( 0.700f,  0.000f);
+    appendAggressiveSpinSeed( 0.000f,  0.700f);
+    appendAggressiveSpinSeed(-0.700f,  0.000f);
+    appendAggressiveSpinSeed( 0.000f, -0.700f);
+    appendAggressiveSpinSeed( 0.495f,  0.495f);
+    appendAggressiveSpinSeed(-0.495f,  0.495f);
+    appendAggressiveSpinSeed(-0.495f, -0.495f);
+    appendAggressiveSpinSeed( 0.495f, -0.495f);
+  }
+  if (g_aggSpinEnableOuter) {
+    appendAggressiveSpinSeed( 0.920f,  0.000f);
+    appendAggressiveSpinSeed( 0.000f,  0.920f);
+    appendAggressiveSpinSeed(-0.920f,  0.000f);
+    appendAggressiveSpinSeed( 0.000f, -0.920f);
+  }
+}
+static bool beginAggressiveSpinSeed(int seedIndex) {
+  if (seedIndex < 0 || seedIndex >= g_aggressiveSpinSeedCount)
+    return false;
+  g_aggressiveSpinCurrentSeedShot = g_aggressiveSpinBaseShot;
+  g_aggressiveSpinCurrentSeedShot.spinX = g_aggressiveSpinSeedX[seedIndex];
+  g_aggressiveSpinCurrentSeedShot.spinY = g_aggressiveSpinSeedY[seedIndex];
+  simulateSpinSearchShotQuiet(&g_aggressiveSpinCurrentSeedShot);
+  g_aggressiveSpinCurrentShakeBestShot = g_aggressiveSpinCurrentSeedShot;
+  g_aggressiveSpinRefineIdx = 0;
+  g_aggressiveSpinRetuneStarted = false;
+  g_aggressiveSpinSeedPrepared = true;
+  return true;
+}
+static void applyPreferredSpinIfAvailable(void *poolGameController) {
+  if (!g_hasPreferredSpin)
+    return;
+  applySpinSearchValue(poolGameController, g_preferredSpinX, g_preferredSpinY);
+}
+static bool applyPreferredShotIfAvailable(void *poolGameController) {
+  if (g_hasPreferredSpin)
+    applyPreferredSpinIfAvailable(poolGameController);
+  return false;
+}
+static void clearSpinSearchRuntimeState();
+static void cancelAllHelperSearches() {
+  g_autoAimActive.store(false);
+  g_autoAimStart.store(false);
+  g_autoAimComboMode = false;
+  g_refineActive.store(false);
+  g_refineStart.store(false);
+  g_aggRefineActive.store(false);
+  g_aggRefineStart.store(false);
+  g_refineVerifyPending.store(false);
+  g_smartAimActive = false;
+  g_smartAimStart.store(false);
+  clearSpinSearchRuntimeState();
+}
+static void armRestoreEnforceWatchdog(const SpinSearchShotState &target) {
+  SpinSearchShotState normalized = target;
+  normalizeSpinSearchShotState(&normalized);
+  g_restoreEnforceTarget = normalized;
+  g_restoreEnforceFramesLeft = RESTORE_ENFORCE_MAX_FRAMES;
+  g_restoreStableFrames = 0;
+}
+static bool restoreSavedShotToLiveCue(void *poolGameController) {
+  if (!poolGameController || !g_hasRestoreShot)
+    return false;
+  SpinSearchShotState restored = g_restoreShot;
+  normalizeSpinSearchShotState(&restored);
+  if (!applyLiveShotExact(poolGameController, restored))
+    return false;
+  rememberPreferredSpin(restored.spinX, restored.spinY);
+  runPoolGhostSimulation(restored.dirX, restored.dirZ,
+                         restored.powerPct / 100.0f, restored.spinX,
+                         restored.spinY);
+  pushTrajectoryToOverlay();
+  g_refreshPreview.store(false);
+  armRestoreEnforceWatchdog(restored);
+  return true;
+}
+static bool beginAggressiveSpinPromotedSeed(int promotedIndex) {
+  if (promotedIndex < 0 || promotedIndex >= g_aggressiveSpinPromotedSeedCount)
+    return false;
+  int seedIndex = g_aggressiveSpinPromotedSeedOrder[promotedIndex];
+  if (seedIndex < 0 || seedIndex >= g_aggressiveSpinSeedCount)
+    return false;
+  g_aggressiveSpinCurrentSeedShot = g_aggressiveSpinRawSeedShots[seedIndex];
+  g_aggressiveSpinCurrentShakeBestShot = g_aggressiveSpinCurrentSeedShot;
+  g_aggressiveSpinRefineIdx = 0;
+  g_aggressiveSpinRetuneStarted = false;
+  g_aggressiveSpinSeedPrepared = true;
+  return true;
+}
+static void startAggressiveSpinLocalSearch(
+    const SpinSearchShotState &startShot) {
+  g_aggressiveSpinStage = AGGRESSIVE_SPIN_STAGE_LOCAL_COUPLED;
+  g_aggressiveSpinRetuneStarted = false;
+  g_aggressiveSpinSeedPrepared = false;
+  g_aggressiveSpinLocalPhase = aggressiveSpinStartPhase();
+  g_aggressiveSpinLocalNeighborIdx = 0;
+  g_aggressiveSpinLocalCenterShot = startShot;
+  g_aggressiveSpinLocalRoundBestShot = startShot;
+}
+static void continueAggressiveSpinAfterSeedScan(void *poolGameController) {
+  if (isBetterSpinSearchShot(g_aggressiveSpinBestShot, g_aggressiveSpinBaseShot)) {
+    if (!commitAggressiveSpinShotToLiveCue(poolGameController,
+                                           g_aggressiveSpinBestShot)) {
+      finishAggressiveSpinSearch(poolGameController);
+      return;
+    }
+    if (g_aggressiveSpinHasCommittedShot)
+      g_aggressiveSpinBestShot = g_aggressiveSpinCommittedShot;
+  }
+  if (isAggressiveSpinLightMode() || !aggressiveSpinShouldEnterLocalSearch()) {
+    finishAggressiveSpinSearch(poolGameController);
+  } else {
+    startAggressiveSpinLocalSearch(g_aggressiveSpinHasCommittedShot
+                                       ? g_aggressiveSpinCommittedShot
+                                       : g_aggressiveSpinBestShot);
+  }
+}
+static bool SafeSphereCast(Vector3 origin, float radius, Vector3 direction,
+                           RaycastHit *hitInfo, float maxDistance, int layerMask,
+                           void *ignoreObject) {
+  bool didHit = SphereCast_func(origin, radius, direction, hitInfo,
+                                maxDistance, layerMask, 0, nullptr);
+  if (didHit && GetCollider_func && GetGameObject_func) {
+    void *collider = GetCollider_func(hitInfo, nullptr);
+    if (collider) {
+      void *hitGO = GetGameObject_func(collider, nullptr);
+      bool shouldSkip = false;
+      if (ignoreObject && hitGO == ignoreObject) {
+        shouldSkip = true;
+      }
+      else if (GetLayer_func && GetLayer_func(hitGO, nullptr) == 15) {
+        bool inRegistry = false;
+        {
+          std::lock_guard<std::mutex> lock(g_freeBallMutex);
+          if (g_freeBallRegistry.find(hitGO) != g_freeBallRegistry.end()) {
+            inRegistry = true;
+          }
+        }
+        if (!inRegistry) {
+          shouldSkip = true;
+        }
+      }
+      if (shouldSkip) {
+        float jumpDist = hitInfo->distance + radius * 2.2f;
+        Vector3 newOrigin = v3add(origin, v3scale(direction, jumpDist));
+        float remaining = maxDistance - jumpDist;
+        if (remaining > 0.0f) {
+          didHit = SafeSphereCast(newOrigin, radius, direction, hitInfo,
+                                 remaining, layerMask, ignoreObject);
+          if (didHit) hitInfo->distance += jumpDist;
+        } else {
+          didHit = false;
+        }
+      }
+    }
+  }
+  return didHit;
+}
+void my_FreeBallUpdate(void *instance) {
+  if (orig_FreeBallUpdate) orig_FreeBallUpdate(instance);
+  if (!instance || !GetBallNumber_func || !GetGameObject_func) return;
+  int ballNumber = GetBallNumber_func(instance, nullptr);
+  void *gameObject = GetGameObject_func(instance, nullptr);
+  if (gameObject) {
+    std::lock_guard<std::mutex> lock(g_freeBallMutex);
+    g_freeBallRegistry[gameObject] = ballNumber;
+  }
+  if (ballNumber == 0) {
+    if (gameObject) g_freeCueBallObject = gameObject;
+    if (RigidbodyGetPosition_func) {
+      void *rigidbody = *(void **)((uintptr_t)instance + 0x48);
+      if (rigidbody) {
+        Vector3 pos = RigidbodyGetPosition_func(rigidbody, nullptr);
+        g_freeCueBallPos[0] = pos.x;
+        g_freeCueBallPos[1] = pos.y;
+        g_freeCueBallPos[2] = pos.z;
+        g_freeCueBallValid = true;
+      }
+    }
+  }
+}
+static void *findCueBallObject() {
+  if (g_freeCueBallObject) return g_freeCueBallObject;
+  std::lock_guard<std::mutex> lock(g_freeBallMutex);
+  for (auto &kv : g_freeBallRegistry) {
+    if (kv.second == 0) return kv.first;
+  }
+  return nullptr;
+}
+static void worldToScreen(void *cam, int camH, Vector3 world,
+                          float &outX, float &outY) {
+  Vector3 s = WorldToScreenPoint_func(cam, world, nullptr);
+  outX = s.x;
+  outY = (float)camH - s.y;
+}
+#ifndef BALL_MARKER
+#define BALL_MARKER -9999.0f
+#endif
+#ifndef DIST_MARKER
+#define DIST_MARKER -8888.0f 
+#endif
+static void computeFreeTrajectory(void *cueController) {
+  if (!SphereCast_func || !GetMainCamera_func || !WorldToScreenPoint_func ||
+      !GetCollider_func || !GetGameObject_func || !GetLayer_func ||
+      !GetPixelHeight_func || !g_freeCueBallValid || !overlayView)
+    return;
+  void *mainCamera = GetMainCamera_func();
+  if (!mainCamera) return;
+  int layerMask = *(int *)((uintptr_t)cueController + OFF_CUE_LAYER_MASK);
+  float ballRadius = *(float *)((uintptr_t)cueController + OFF_CUE_RADIUS);
+  if (ballRadius <= 0.0f) ballRadius = 0.05f;
+  auto *dirVec = (float *)((uintptr_t)cueController + OFF_CUE_RAY_DIRECTION);
+  Vector3 flatDir = {dirVec[0], 0.0f, dirVec[2]};
+  Vector3 dir = v3norm(flatDir);
+  if (v3len(dir) < 0.001f) return; 
+  Vector3 origin = {g_freeCueBallPos[0], g_freeCueBallPos[1], g_freeCueBallPos[2]};
+  void *cueBallObj = g_freeCueBallObject; 
+  if (!cueBallObj) return; 
+  int camH = GetPixelHeight_func(mainCamera, nullptr);
+  Vector3 pt[8];
+  pt[0] = origin;
+  for (int i = 1; i < 8; i++) pt[i] = origin; 
+  RaycastHit hit{};
+  memset(&hit, 0, sizeof(RaycastHit));
+  bool didHit = SafeSphereCast(origin, ballRadius, dir, &hit, 10.0f,
+                               layerMask, cueBallObj);
+  if (!didHit) {
+    pt[1] = v3add(origin, v3scale(dir, 3.0f));
+    for (int i = 2; i < 8; i++) pt[i] = pt[1];
+  } else {
+    pt[1] = v3add(origin, v3scale(dir, hit.distance));
+    void *col = GetCollider_func(&hit, nullptr);
+    void *hitGO = col ? GetGameObject_func(col, nullptr) : nullptr;
+    int layer = hitGO ? GetLayer_func(hitGO, nullptr) : -1;
+    if (layer == 15) {
+      Vector3 tDir = v3norm({-hit.normal.x, 0, -hit.normal.z});
+      Vector3 tCenter = v3add(pt[1], v3scale(tDir, ballRadius * 2.0f));
+      pt[2] = tCenter;
+      RaycastHit hit2{};
+      bool hit2ok = SafeSphereCast(tCenter, ballRadius, tDir, &hit2, 10.0f,
+                                   layerMask, hitGO);
+      if (hit2ok) {
+        pt[3] = v3add(tCenter, v3scale(tDir, hit2.distance));
+        void *col2 = GetCollider_func(&hit2, nullptr);
+        void *go2 = col2 ? GetGameObject_func(col2, nullptr) : nullptr;
+        int layer2 = go2 ? GetLayer_func(go2, nullptr) : -1;
+        if (layer2 == 15) {
+          int ballBNum = -1;
+          {
+            std::lock_guard<std::mutex> lock(g_freeBallMutex);
+            auto it = g_freeBallRegistry.find(go2);
+            if (it != g_freeBallRegistry.end()) ballBNum = it->second;
+          }
+          if (ballBNum > 0) {
+            Vector3 bDir = v3norm({-hit2.normal.x, 0, -hit2.normal.z});
+            Vector3 bCenter = v3add(pt[3], v3scale(bDir, ballRadius * 2.0f));
+            pt[4] = bCenter;
+            RaycastHit hit3{};
+            bool hit3ok = SafeSphereCast(bCenter, ballRadius, bDir, &hit3,
+                                         10.0f, layerMask, go2);
+            pt[5] = hit3ok ? v3add(bCenter, v3scale(bDir, hit3.distance))
+                           : v3add(bCenter, v3scale(bDir, 3.0f));
+          } else {
+            for (int i = 4; i < 8; i++) pt[i] = pt[3];
+          }
+        } else if (layer2 == 16) {
+          Vector3 rDir = v3norm(v3reflect(tDir, hit2.normal));
+          rDir.y = 0;
+          rDir = v3norm(rDir);
+          pt[4] = pt[3];
+          RaycastHit hit3{};
+          bool hit3ok = SafeSphereCast(pt[3], ballRadius, rDir, &hit3, 10.0f,
+                                       layerMask, hitGO);
+          pt[5] = hit3ok ? v3add(pt[3], v3scale(rDir, hit3.distance))
+                         : v3add(pt[3], v3scale(rDir, 2.0f));
+        } else {
+          for (int i = 4; i < 8; i++) pt[i] = pt[3];
+        }
+      } else {
+        pt[3] = v3add(tCenter, v3scale(tDir, 3.0f));
+        for (int i = 4; i < 8; i++) pt[i] = pt[3];
+      }
+      Vector3 cueDeflect = v3norm(v3reflect(dir, hit.normal));
+      cueDeflect.y = 0;
+      cueDeflect = v3norm(cueDeflect);
+      RaycastHit cueHit{};
+      bool cueHitOk = SafeSphereCast(pt[1], ballRadius, cueDeflect, &cueHit,
+                                      10.0f, layerMask, cueBallObj);
+      pt[6] = pt[1]; 
+      pt[7] = cueHitOk ? v3add(pt[1], v3scale(cueDeflect, cueHit.distance))
+                        : v3add(pt[1], v3scale(cueDeflect, 2.0f));
+    } else if (layer == 16) {
+      Vector3 rDir = v3norm(v3reflect(dir, hit.normal));
+      rDir.y = 0;
+      rDir = v3norm(rDir);
+      pt[2] = pt[1]; 
+      RaycastHit bHit{};
+      bool bHitOk = SafeSphereCast(pt[1], ballRadius, rDir, &bHit, 10.0f,
+                                    layerMask, cueBallObj);
+      if (bHitOk) {
+        pt[3] = v3add(pt[1], v3scale(rDir, bHit.distance));
+        void *bCol = GetCollider_func(&bHit, nullptr);
+        void *bGO = bCol ? GetGameObject_func(bCol, nullptr) : nullptr;
+        int bLayer = bGO ? GetLayer_func(bGO, nullptr) : -1;
+        if (bLayer == 15) {
+          int bNum = -1;
+          {
+            std::lock_guard<std::mutex> lock(g_freeBallMutex);
+            auto it = g_freeBallRegistry.find(bGO);
+            if (it != g_freeBallRegistry.end()) bNum = it->second;
+          }
+          if (bNum > 0) {
+            Vector3 bDir2 = v3norm({-bHit.normal.x, 0, -bHit.normal.z});
+            Vector3 bCenter = v3add(pt[3], v3scale(bDir2, ballRadius * 2.0f));
+            pt[4] = bCenter;
+            RaycastHit bHit2{};
+            bool bHit2ok = SafeSphereCast(bCenter, ballRadius, bDir2, &bHit2,
+                                          10.0f, layerMask, bGO);
+            pt[5] = bHit2ok ? v3add(bCenter, v3scale(bDir2, bHit2.distance))
+                            : v3add(bCenter, v3scale(bDir2, 3.0f));
+          } else {
+            pt[4] = pt[3];
+            pt[5] = pt[3];
+          }
+        } else {
+          pt[4] = pt[3];
+          pt[5] = pt[3];
+        }
+      } else {
+        pt[3] = v3add(pt[1], v3scale(rDir, 2.0f));
+        for (int i = 4; i < 8; i++) pt[i] = pt[3];
+      }
+      pt[6] = pt[5];
+      pt[7] = pt[5];
+    } else {
+      Vector3 rDir = v3reflect(dir, hit.normal);
+      pt[2] = pt[1];
+      pt[3] = v3add(pt[1], v3scale(rDir, 2.0f));
+      for (int i = 4; i < 8; i++) pt[i] = pt[3];
+    }
+  }
+  struct Seg { int start; int end; int colorIdx; };
+  int ci = g_freeLineColorIdx; 
+  Seg segs[] = {{0,1, ci}, {2,3, ci}, {4,5, ci}, {6,7, ci}};
+  Vector3 cW = pt[1];
+  Vector3 eW = v3add(cW, {ballRadius, 0, 0});
+  float sx1, sy1, sx2, sy2;
+  worldToScreen(mainCamera, camH, cW, sx1, sy1);
+  worldToScreen(mainCamera, camH, eW, sx2, sy2);
+  float screenRadius = fabsf(sx2 - sx1);
+  if (screenRadius < 3.0f) screenRadius = 3.0f;
+  std::vector<float> screenCoords;
+  for (auto &seg : segs) {
+    Vector3 a = pt[seg.start], b = pt[seg.end];
+    float dx = a.x - b.x, dz = a.z - b.z;
+    if (dx * dx + dz * dz < 0.0001f) continue;
+    screenCoords.push_back(BALL_MARKER);
+    screenCoords.push_back((float)seg.colorIdx);
+    screenCoords.push_back(screenRadius);
+    float ax, ay, bx, by;
+    worldToScreen(mainCamera, camH, a, ax, ay);
+    worldToScreen(mainCamera, camH, b, bx, by);
+    screenCoords.push_back(ax);
+    screenCoords.push_back(ay);
+    screenCoords.push_back(bx);
+    screenCoords.push_back(by);
+  }
+  {
+    std::lock_guard<std::mutex> lock(trajectoryMutex);
+    cachedTrajectoryScreenCoords = std::move(screenCoords);
+    hasNewTrajectory = true;
+  }
+}
+void my_FreeCueUpdate(void *instance) {
+  if (orig_FreeCueUpdate) orig_FreeCueUpdate(instance);
+  if (!instance || !g_extendedLinesEnabled) return;
+  auto *dirVec = (float *)((uintptr_t)instance + OFF_CUE_RAY_DIRECTION);
+  if (dirVec[0] == g_lastFreeDirX && dirVec[2] == g_lastFreeDirZ) return;
+  g_lastFreeDirX = dirVec[0];
+  g_lastFreeDirZ = dirVec[2];
+  computeFreeTrajectory(instance);
+  pushTrajectoryToOverlay();
+}
+static void initMemoryCRC();
+static std::string procSelfMaps();
+static std::string g_filesDir;
+static uint32_t g_textCRC = 0;
+static uintptr_t g_textBase = 0;
+static size_t g_textSize = 0;
+static bool g_memoryCRCInitialized = false;
+static uint32_t parseHex32(const char *s, int len) {
+  uint32_t val = 0;
+  for (int i = 0; i < len && i < 8; i++) {
+    char c = s[i];
+    uint32_t nib = 0;
+    if (c >= '0' && c <= '9') nib = c - '0';
+    else if (c >= 'a' && c <= 'f') nib = 10 + (c - 'a');
+    else if (c >= 'A' && c <= 'F') nib = 10 + (c - 'A');
+    else break;
+    val = (val << 4) | nib;
+  }
+  return val;
+}
+static void cacheEquationSeed(uint32_t seed) {
+  if (g_filesDir.empty()) return;
+  std::string path = g_filesDir + "/eq_cache";
+  FILE *fp = fopen(path.c_str(), "wb");
+  if (fp) {
+    uint32_t masked = seed ^ 0x4A575348; 
+    fwrite(&masked, 4, 1, fp);
+    fclose(fp);
+  }
+}
+static uint32_t loadCachedEquationSeed() {
+  if (g_filesDir.empty()) return 0;
+  std::string path = g_filesDir + "/eq_cache";
+  FILE *fp = fopen(path.c_str(), "rb");
+  if (!fp) return 0;
+  uint32_t masked = 0;
+  size_t n = fread(&masked, 4, 1, fp);
+  fclose(fp);
+  if (n != 1) return 0;
+  return masked ^ 0x4A575348;
+}
+static void fetchEquationSeed() {
+  uint32_t fingerprint = computePrologueDigest();
+  if (fingerprint == 0) {
+    g_equation_seed = loadCachedEquationSeed();
+    return;
+  }
+  if (sizeof(E_RURL_EQ) <= 1) {
+    return;
+  }
+  bool fetched = false;
+  withJNIEnv([&](JNIEnv *env) {
+    std::string url = decryptStr(E_RURL_EQ, sizeof(E_RURL_EQ));
+    if (url.empty() || url.length() < 5) return;
+    jclass urlClass = env->FindClass("java/net/URL");
+    if (!urlClass) return;
+    jmethodID urlCtor = env->GetMethodID(urlClass, "<init>", "(Ljava/lang/String;)V");
+    jstring jUrl = env->NewStringUTF(url.c_str());
+    jobject urlObj = env->NewObject(urlClass, urlCtor, jUrl);
+    env->DeleteLocalRef(jUrl);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); env->DeleteLocalRef(urlClass); return; }
+    jmethodID openConn = env->GetMethodID(urlClass, "openConnection", "()Ljava/net/URLConnection;");
+    jobject conn = env->CallObjectMethod(urlObj, openConn);
+    env->DeleteLocalRef(urlObj);
+    env->DeleteLocalRef(urlClass);
+    if (!conn || env->ExceptionCheck()) { env->ExceptionClear(); if (conn) env->DeleteLocalRef(conn); return; }
+    jclass httpClass = env->FindClass("java/net/HttpURLConnection");
+    env->CallVoidMethod(conn, env->GetMethodID(httpClass, "setConnectTimeout", "(I)V"), 5000);
+    env->CallVoidMethod(conn, env->GetMethodID(httpClass, "setReadTimeout", "(I)V"), 5000);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (g_sslFactory) {
+      jclass httpsClass = env->FindClass("javax/net/ssl/HttpsURLConnection");
+      if (httpsClass) {
+        jmethodID setFactory = env->GetMethodID(httpsClass, "setSSLSocketFactory",
+            "(Ljavax/net/ssl/SSLSocketFactory;)V");
+        env->CallVoidMethod(conn, setFactory, g_sslFactory);
+        env->DeleteLocalRef(httpsClass);
+      }
+      if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+    jint code = env->CallIntMethod(conn, env->GetMethodID(httpClass, "getResponseCode", "()I"));
+    if (env->ExceptionCheck() || code != 200) {
+      env->ExceptionClear();
+      env->CallVoidMethod(conn, env->GetMethodID(httpClass, "disconnect", "()V"));
+      env->DeleteLocalRef(conn); env->DeleteLocalRef(httpClass);
+      return;
+    }
+    jobject stream = env->CallObjectMethod(conn,
+        env->GetMethodID(httpClass, "getInputStream", "()Ljava/io/InputStream;"));
+    if (!stream || env->ExceptionCheck()) {
+      env->ExceptionClear();
+      env->CallVoidMethod(conn, env->GetMethodID(httpClass, "disconnect", "()V"));
+      if (stream) env->DeleteLocalRef(stream);
+      env->DeleteLocalRef(conn); env->DeleteLocalRef(httpClass);
+      return;
+    }
+    jclass isClass = env->FindClass("java/io/InputStream");
+    jmethodID readMethod = env->GetMethodID(isClass, "read", "([B)I");
+    jbyteArray buf = env->NewByteArray(128);
+    char response[128] = {};
+    int totalRead = 0;
+    while (totalRead < 127) {
+      int n = env->CallIntMethod(stream, readMethod, buf);
+      if (env->ExceptionCheck()) { env->ExceptionClear(); break; }
+      if (n <= 0) break;
+      env->GetByteArrayRegion(buf, 0, n, (jbyte *)(response + totalRead));
+      totalRead += n;
+    }
+    response[totalRead] = '\0';
+    env->CallVoidMethod(stream, env->GetMethodID(isClass, "close", "()V"));
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(buf); env->DeleteLocalRef(stream); env->DeleteLocalRef(isClass);
+    env->CallVoidMethod(conn, env->GetMethodID(httpClass, "disconnect", "()V"));
+    env->DeleteLocalRef(conn); env->DeleteLocalRef(httpClass);
+    while (totalRead > 0 && (response[totalRead-1] == '\n' ||
+           response[totalRead-1] == '\r' || response[totalRead-1] == ' '))
+      response[--totalRead] = '\0';
+    uint32_t coeffs[4] = {};
+    int ci = 0;
+    const char *p = response;
+    while (ci < 4 && *p) {
+      const char *start = p;
+      while (*p && *p != ',' && *p != '\n' && *p != '\r') p++;
+      int fieldLen = (int)(p - start);
+      if (fieldLen > 0 && fieldLen <= 8) {
+        coeffs[ci] = parseHex32(start, fieldLen);
+      }
+      ci++;
+      if (*p == ',') p++;
+    }
+    if (ci >= 4) {
+      g_equation_seed = mixHash(fingerprint, coeffs[0], coeffs[1], coeffs[2], coeffs[3]);
+      cacheEquationSeed(g_equation_seed);
+      fetched = true;
+    }
+  });
+  if (!fetched) {
+    uint32_t cached = loadCachedEquationSeed();
+    if (cached != 0) {
+      g_equation_seed = cached;
+    }
+  }
+}
+static bool initDobbyHook();
+uintptr_t get_lib_addr(const char *lib_name);
+static std::string decryptStr(const uint8_t *data, int len);
+static const uint8_t ENC_IL2CPP_SO_FREE[] = {0x0B,0x7B,0x64,0xAB,0xFD,0xB1,0x04,0xA3,0x8D,0xA5,0xA6,0xFF}; 
+static void installFreeHooks() {
+  std::thread([]() {
+    uintptr_t base = 0;
+    while (base == 0) {
+      base = get_lib_addr(decryptStr(ENC_IL2CPP_SO_FREE, sizeof(ENC_IL2CPP_SO_FREE)).c_str());
+      if (base == 0) sleep(1);
+    }
+    fetchEquationSeed();
+    fetchLabelKey();
+    SphereCast_func           = (SphereCast_t)          (base + getFreeRVA(FREE_IDX_SPHERECAST));
+    GetCollider_func          = (GetCollider_t)         (base + getFreeRVA(FREE_IDX_GET_COLLIDER));
+    GetGameObject_func        = (GetGameObject_t)       (base + getFreeRVA(FREE_IDX_GET_GAME_OBJECT));
+    GetLayer_func             = (GetLayer_t)            (base + getFreeRVA(FREE_IDX_GET_LAYER));
+    RigidbodyGetPosition_func = (RigidbodyGetPosition_t)(base + getFreeRVA(FREE_IDX_RB_GET_POSITION));
+    GetBallNumber_func        = (GetBallNumber_t)       (base + getFreeRVA(FREE_IDX_BALL_GET_NUMBER));
+    GetMainCamera_func        = (GetMainCamera_t)      (base + getFreeRVA(FREE_IDX_CAMERA_MAIN));
+    WorldToScreenPoint_func   = (WorldToScreenPoint_t) (base + getFreeRVA(FREE_IDX_CAMERA_W2S));
+    GetPixelHeight_func       = (GetPixelHeight_t)     (base + getFreeRVA(FREE_IDX_CAMERA_HEIGHT));
+    volatile uint32_t prologueCheck = 0;
+    prologueCheck += *(volatile uint32_t *)SphereCast_func;
+    prologueCheck += *(volatile uint32_t *)GetCollider_func;
+    prologueCheck += *(volatile uint32_t *)GetBallNumber_func;
+    (void)prologueCheck;
+    if (!initDobbyHook()) return;
+    DobbyHook((void *)(base + getFreeRVA(FREE_IDX_BALL_UPDATE)),
+              (void *)my_FreeBallUpdate, (void **)&orig_FreeBallUpdate);
+    DobbyHook((void *)(base + getFreeRVA(FREE_IDX_CUE_UPDATE)),
+              (void *)my_FreeCueUpdate, (void **)&orig_FreeCueUpdate);
+  }).detach();
+}
+void my_PowerBarDragged(void *instance, float power, void *methodInfo) {
+  if (orig_PowerBarDragged)
+    orig_PowerBarDragged(instance, power, methodInfo);
+  if (isSpinSearchOwningCue())
+    clearSpinSearchRuntimeState();
+  lastPower = power;
+  previewPowerPct = clampPreviewPowerPctValue(power * 100.0f);
+  STEALTH_ANTI_FRIDA(checkProcMaps, 4100)
+  STEALTH_ANTI_FRIDA(checkPrologueIntegrity, 5700)
+  withJNIEnv([&](JNIEnv *env) {
+    char msg[64];
+    snprintf(msg, sizeof(msg), decryptStr(ENC_FMT_POWER, sizeof(ENC_FMT_POWER)).c_str(), power);
+    updateTextView(env, powerTextView, msg);
+  });
+  syncPowerAutoAimUI();
+  if (!isSpinSearchOwningCue())
+    rememberPreferredPower(previewPowerPct);
+  triggerGhostSimulation();
+}
+void my_PoolUpdate(void *instance, void *methodInfo) {
+  if (orig_PoolUpdate)
+    orig_PoolUpdate(instance, methodInfo);
+  if (g_takeShot.exchange(false)) {
+    if (instance != nullptr) {
+      typedef void (*PoolShoot_t)(void *, float, void *);
+      auto shootFunc = reinterpret_cast<PoolShoot_t>(
+          il2cppBase + getRVA(ENC_RVA_POOL_SHOOT));
+      shootFunc(instance, previewPowerPct / 100.0f, nullptr);
+#ifdef ADVANCED_CONTROLS
+      if (g_isInTrickShotMode) {
+        auto *dir = reinterpret_cast<float *>(
+            reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+        appendSavedShot(dir[0], dir[2], previewPowerPct);
+      }
+#endif
+    }
+  }
+  if (g_refreshPreview.exchange(false)) {
+    if (instance && g_previewLineEnabled && g_predictionLinesEnabled && !g_extendedLinesEnabled) {
+      lastPoolGameController = instance; 
+      syncLiveSpinFromCueController(instance);
+      float previewForce = previewPowerPct / 100.0f;
+      auto *dir = reinterpret_cast<float *>(
+          reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+      float ghostDir0 = dir[0];
+      float ghostDir1 = dir[2];
+      if (hasGhostData && hasRustBridgeData) {
+        performGhostSimulation(ghostDir0, ghostDir1, previewForce, lastSpinX, lastSpinY);
+      } else {
+        performPreShotGhostSimulation(ghostDir0, ghostDir1, previewForce, lastSpinX, lastSpinY);
+      }
+      pushTrajectoryToOverlay();
+    }
+  }
+  if (g_rotateCue.exchange(false)) {
+    if (instance && orig_RotateCue && !isSpinSearchOwningCue()) {
+      float delta = g_rotateDelta;
+      orig_RotateCue(instance, delta, nullptr);
+      g_refreshPreview.store(true); 
+      g_restoreEnforceFramesLeft = 0;
+      g_restoreStableFrames = 0;
+    }
+  }
+  if (g_restoreShotStart.exchange(false)) {
+    if (instance && restoreSavedShotToLiveCue(instance)) {
+      withJNIEnv([&](JNIEnv *env) {
+        showToast(env, decryptStr(ENC_RESTORED, sizeof(ENC_RESTORED)).c_str());
+      });
+    }
+  }
+  if (g_restoreEnforceFramesLeft > 0 && instance) {
+    if (g_aggressiveSpinActive.load() || g_autoAimActive.load() ||
+        g_refineActive.load() || g_aggRefineActive.load() || g_spinSearchActive.load() ||
+        g_spinComboRetuneActive.load()) {
+      g_restoreEnforceFramesLeft = 0;
+      g_restoreStableFrames = 0;
+    } else {
+      SpinSearchShotState verifiedShot{};
+      bool allMatch = captureVerifiedAggressiveSpinLiveShot(
+          instance, g_restoreEnforceTarget, &verifiedShot);
+      if (!allMatch) {
+        applyLiveShotExact(instance, g_restoreEnforceTarget);
+        runPoolGhostSimulationForInstance(
+            instance, g_restoreEnforceTarget.powerPct / 100.0f,
+            g_restoreEnforceTarget.spinX, g_restoreEnforceTarget.spinY);
+        pushTrajectoryToOverlay();
+        g_restoreStableFrames = 0;
+        g_restoreEnforceFramesLeft--;
+      } else {
+        g_restoreStableFrames++;
+        if (g_restoreStableFrames >= RESTORE_ENFORCE_STABLE_FRAMES_REQUIRED) {
+          g_restoreEnforceFramesLeft = 0;
+          g_restoreStableFrames = 0;
+        } else {
+          g_restoreEnforceFramesLeft--;
+        }
+      }
+    }
+  }
+#ifdef ADVANCED_CONTROLS
+  if (g_spinComboRetuneActive.load()) {
+    static const int SPIN_COMBO_RETUNE_BATCH_SIZE = 25; 
+    for (int _batch = 0; _batch < SPIN_COMBO_RETUNE_BATCH_SIZE; _batch++) {
+      if (!g_spinComboRetuneActive.load())
+        break;
+      if (g_spinComboRetuneNeighborIdx == 0) {
+        g_spinComboRetuneCenterPower = g_spinComboRetuneCenterShot.powerPct;
+        g_spinComboRetuneCenterDist = g_spinComboRetuneCenterShot.dist;
+        g_spinComboRetuneBestDist = g_spinComboRetuneCenterShot.dist;
+        g_spinComboRetuneBestNeighborDist = g_spinComboRetuneCenterShot.dist;
+        g_spinComboRetuneBestNeighborDir = 0;
+        g_spinComboRetuneBestNeighborPwr = 0;
+        g_spinComboRetuneRoundBestShot = g_spinComboRetuneCenterShot;
+      }
+      if (g_spinComboRetuneNeighborIdx == 8) {
+        if (isBetterSpinSearchShot(g_spinComboRetuneRoundBestShot,
+                                   g_spinComboRetuneCenterShot)) {
+          g_spinComboRetuneCenterShot = g_spinComboRetuneRoundBestShot;
+          g_spinComboRetuneBestDist = g_spinComboRetuneCenterShot.dist;
+          g_spinComboRetuneCenterDist = g_spinComboRetuneCenterShot.dist;
+          g_spinComboRetuneNeighborIdx = 0;
+          g_spinComboRetuneRoundCount++;
+          if (g_spinComboRetuneRoundCap > 0 &&
+              g_spinComboRetuneRoundCount >= g_spinComboRetuneRoundCap) {
+            g_spinComboRetuneResultShot = g_spinComboRetuneCenterShot;
+            g_spinComboRetuneHasResult = true;
+            g_spinComboRetuneActive.store(false);
+            break;
+          }
+          continue;
+        }
+        if (g_spinComboRetunePhase < aggressiveSpinDepthCap()) {
+          g_spinComboRetunePhase++;
+          g_spinComboRetuneNeighborIdx = 0;
+          g_spinComboRetuneBestDist = g_spinComboRetuneCenterShot.dist;
+          g_spinComboRetuneCenterDist = g_spinComboRetuneCenterShot.dist;
+          g_spinComboRetuneRoundCount++;
+          if (g_spinComboRetuneRoundCap > 0 &&
+              g_spinComboRetuneRoundCount >= g_spinComboRetuneRoundCap) {
+            g_spinComboRetuneResultShot = g_spinComboRetuneCenterShot;
+            g_spinComboRetuneHasResult = true;
+            g_spinComboRetuneActive.store(false);
+            break;
+          }
+          continue;
+        }
+        g_spinComboRetuneResultShot = g_spinComboRetuneCenterShot;
+        g_spinComboRetuneHasResult = true;
+        g_spinComboRetuneActive.store(false);
+        break;
+      }
+      int ddir = COMBO_NEIGHBOR_DIR[g_spinComboRetuneNeighborIdx];
+      int dpwr = COMBO_NEIGHBOR_PWR[g_spinComboRetuneNeighborIdx];
+      SpinSearchShotState candidateShot = g_spinComboRetuneCenterShot;
+      if (ddir != 0)
+        rotateDirectionXZ(&candidateShot.dirX, &candidateShot.dirZ,
+                          ddir * autoAimStepDeg(g_spinComboRetunePhase));
+      candidateShot.powerPct = clampPreviewPowerPctValue(
+          g_spinComboRetuneCenterPower +
+          dpwr * autoAimStepPct(g_spinComboRetunePhase));
+      simulateSpinSearchShotQuiet(&candidateShot);
+      if (isBetterSpinSearchShot(candidateShot, g_spinComboRetuneRoundBestShot)) {
+        g_spinComboRetuneBestDist = candidateShot.dist;
+        g_spinComboRetuneBestNeighborDist = candidateShot.dist;
+        g_spinComboRetuneBestNeighborDir = ddir;
+        g_spinComboRetuneBestNeighborPwr = dpwr;
+        g_spinComboRetuneRoundBestShot = candidateShot;
+      }
+      g_spinComboRetuneNeighborIdx++;
+    }
+  }
+  if (g_spinSearchStart.exchange(false) && g_isInTrickShotMode &&
+      g_hasGhostCueBallPos && instance) {
+    clearSpinSearchRuntimeState();
+    applyPreferredShotIfAvailable(instance);
+    syncLiveSpinFromCueController(instance);
+    float previewForce = previewPowerPct / 100.0f;
+    runPoolGhostSimulationForInstance(instance, previewForce, lastSpinX, lastSpinY);
+    SpinSearchShotState startShot;
+    if (captureLiveSpinSearchShot(instance, &startShot)) {
+      g_spinSearchBestDist = startShot.dist;
+      g_spinSearchCenterDist = startShot.dist;
+      g_spinSearchCenterX = startShot.spinX;
+      g_spinSearchCenterY = startShot.spinY;
+      g_spinSearchBestNeighborX = 0;
+      g_spinSearchBestNeighborY = 0;
+      g_spinSearchNeighborIdx = 0;
+      g_spinSearchPhase = aggressiveSpinStartPhase();
+      g_spinSearchWaitingRetune = false;
+      g_spinSearchCenterShot = startShot;
+      g_spinSearchRoundBestShot = startShot;
+      g_spinSearchActive.store(true);
+      rememberRestoreShotIfBetter(startShot);
+    }
+  }
+  static const int SPIN_SEARCH_BATCH_SIZE = 25; 
+  if (g_spinSearchActive.load() && g_isInTrickShotMode && instance) {
+    for (int _batch = 0; _batch < SPIN_SEARCH_BATCH_SIZE; _batch++) {
+      if (!g_spinSearchActive.load())
+        break;
+      if (g_spinSearchNeighborIdx == 0) {
+        g_spinSearchCenterX = g_spinSearchCenterShot.spinX;
+        g_spinSearchCenterY = g_spinSearchCenterShot.spinY;
+        g_spinSearchCenterDist = g_spinSearchCenterShot.dist;
+        g_spinSearchBestDist = g_spinSearchCenterShot.dist;
+        g_spinSearchBestNeighborX = 0;
+        g_spinSearchBestNeighborY = 0;
+        g_spinSearchRoundBestShot = g_spinSearchCenterShot;
+      }
+      if (g_spinSearchNeighborIdx == 8) {
+        if (isBetterSpinSearchShot(g_spinSearchRoundBestShot,
+                                   g_spinSearchCenterShot)) {
+          if (!commitSpinSearchShotToLiveCue(instance, g_spinSearchRoundBestShot)) {
+            clearSpinSearchRuntimeState();
+            break;
+          }
+          g_spinSearchCenterShot = g_spinSearchRoundBestShot;
+          g_spinSearchBestDist = g_spinSearchCenterShot.dist;
+          g_spinSearchCenterDist = g_spinSearchCenterShot.dist;
+          g_spinSearchNeighborIdx = 0;
+          continue;
+        }
+        if (g_spinSearchPhase < aggressiveSpinDepthCap()) {
+          g_spinSearchPhase++;
+          g_spinSearchNeighborIdx = 0;
+          g_spinSearchBestDist = g_spinSearchCenterShot.dist;
+          g_spinSearchCenterDist = g_spinSearchCenterShot.dist;
+          continue;
+        }
+        syncLiveSpinFromCueController(instance);
+        runPoolGhostSimulationForInstance(instance, previewPowerPct / 100.0f,
+                                          lastSpinX, lastSpinY);
+        pushTrajectoryToOverlay();
+        g_refreshPreview.store(false);
+        rememberPreferredShotFromLive(instance);
+        clearSpinSearchRuntimeState();
+        break;
+      }
+      int dsx = SPIN_NEIGHBOR_X[g_spinSearchNeighborIdx];
+      int dsy = SPIN_NEIGHBOR_Y[g_spinSearchNeighborIdx];
+      float spinStep = spinSearchStep(g_spinSearchPhase);
+      SpinSearchShotState candidateShot = g_spinSearchCenterShot;
+      candidateShot.spinX = g_spinSearchCenterX + dsx * spinStep;
+      candidateShot.spinY = g_spinSearchCenterY + dsy * spinStep;
+      normalizeSpinToUnitDisk(&candidateShot.spinX, &candidateShot.spinY);
+      candidateShot.dist = 1e9f;
+      candidateShot.targetMoved = false;
+      g_spinSearchBestNeighborX = dsx;
+      g_spinSearchBestNeighborY = dsy;
+      simulateSpinSearchShot(&candidateShot);
+      if (isBetterSpinSearchShot(candidateShot, g_spinSearchRoundBestShot)) {
+        g_spinSearchBestDist = candidateShot.dist;
+        g_spinSearchRoundBestShot = candidateShot;
+      }
+      g_spinSearchNeighborIdx++;
+    }
+  } else if (g_spinSearchActive.load() && !g_isInTrickShotMode) {
+    clearSpinSearchRuntimeState();
+  }
+  if (g_aggSpinCancelRequested.exchange(false)) {
+    if (instance && g_isInTrickShotMode &&
+        (g_aggressiveSpinActive.load() || g_aggressiveSpinStart.load())) {
+      SpinSearchShotState best = aggressiveSpinBestInRun();
+      if (commitAggressiveSpinShotToLiveCue(instance, best)) {
+        armRestoreEnforceWatchdog(g_aggressiveSpinCommittedShot);
+      }
+    }
+    clearSpinSearchRuntimeState();
+  }
+  if (g_aggressiveSpinStart.exchange(false) && g_isInTrickShotMode &&
+      g_hasGhostCueBallPos && instance) {
+    clearSpinSearchRuntimeState();
+    applyPreferredShotIfAvailable(instance);
+    syncLiveSpinFromCueController(instance);
+    float previewForce = previewPowerPct / 100.0f;
+    runPoolGhostSimulationForInstance(instance, previewForce, lastSpinX, lastSpinY);
+    SpinSearchShotState startShot;
+    if (captureLiveSpinSearchShot(instance, &startShot)) {
+      g_aggressiveSpinBaseShot = startShot;
+      g_aggressiveSpinBestShot = startShot;
+      g_aggressiveSpinCommittedShot = startShot;
+      g_aggressiveSpinHasCommittedShot = true;
+      g_aggressiveSpinStage = AGGRESSIVE_SPIN_STAGE_SEED_SCAN;
+      g_aggressiveSpinSeedPhase = AGGRESSIVE_SPIN_SEED_PHASE_RAW_SCAN;
+      buildAggressiveSpinSeedList(startShot);
+      g_aggressiveSpinSeedIndex = 0;
+      g_aggressiveSpinPromotedSeedCount = 0;
+      g_aggressiveSpinPromotedSeedIndex = 0;
+      g_aggressiveSpinRetuneSeedCount = 0;
+      g_aggressiveSpinRetuneSeedIndex = 0;
+      g_aggressiveSpinSeedPrepared = false;
+      g_aggressiveSpinRetuneStarted = false;
+      g_aggressiveSpinRefineIdx = 0;
+      g_aggressiveSpinLocalPhase = 0;
+      g_aggressiveSpinLocalNeighborIdx = 0;
+      g_aggressiveSpinLocalCenterShot = startShot;
+      g_aggressiveSpinLocalRoundBestShot = startShot;
+      g_aggressiveSpinActive.store(true);
+      rememberRestoreShotIfBetter(startShot);
+    }
+  }
+  static const int AGGRESSIVE_SPIN_BATCH_SIZE = 25; 
+  if (g_aggressiveSpinActive.load() && g_isInTrickShotMode && instance) {
+    for (int _batch = 0; _batch < AGGRESSIVE_SPIN_BATCH_SIZE; _batch++) {
+      if (!g_aggressiveSpinActive.load())
+        break;
+      if (g_spinComboRetuneHasResult && !g_spinComboRetuneActive.load()) {
+        SpinSearchShotState retunedShot;
+        bool hasRetunedShot = readSpinComboRetuneResult(&retunedShot);
+        if (g_aggressiveSpinStage == AGGRESSIVE_SPIN_STAGE_SEED_SCAN &&
+            g_aggressiveSpinSeedPhase == AGGRESSIVE_SPIN_SEED_PHASE_RETUNE) {
+          if (hasRetunedShot &&
+              isBetterSpinSearchShot(retunedShot, g_aggressiveSpinBestShot)) {
+            g_aggressiveSpinBestShot = retunedShot;
+          }
+          g_aggressiveSpinRetuneSeedIndex++;
+          g_aggressiveSpinRetuneStarted = false;
+          if (g_aggressiveSpinRetuneSeedIndex >= g_aggressiveSpinRetuneSeedCount) {
+            continueAggressiveSpinAfterSeedScan(instance);
+            if (!g_aggressiveSpinActive.load())
+              break;
+          }
+          continue;
+        }
+        if (g_aggSpinClimbMode == 2 && g_aggSpinWinnerStarted) {
+          if (hasRetunedShot &&
+              isBetterSpinSearchShot(retunedShot,
+                                     g_aggressiveSpinLocalRoundBestShot)) {
+            g_aggressiveSpinLocalRoundBestShot = retunedShot;
+          }
+          g_aggSpinWinnerStarted = false;
+          g_aggSpinWinnerPending = false;
+          g_aggressiveSpinLocalNeighborIdx = 8;
+          g_aggressiveSpinRetuneStarted = false;
+          continue;
+        }
+        if (g_aggSpinClimbMode == 2 && g_aggSpinTriageActive) {
+          if (hasRetunedShot) {
+            if (!g_aggSpinTriageHasBest ||
+                isBetterSpinSearchShot(retunedShot,
+                                       g_aggSpinTriageBestRetuned)) {
+              g_aggSpinTriageBestRetuned = retunedShot;
+              g_aggSpinTriageBestCandidate = g_aggSpinTriageCurrentCandidate;
+              g_aggSpinTriageHasBest = true;
+            }
+          }
+          g_aggressiveSpinLocalNeighborIdx++;
+          g_aggressiveSpinRetuneStarted = false;
+          continue;
+        }
+        if (hasRetunedShot &&
+            isBetterSpinSearchShot(retunedShot,
+                                   g_aggressiveSpinLocalRoundBestShot)) {
+          g_aggressiveSpinLocalRoundBestShot = retunedShot;
+        }
+        g_aggressiveSpinLocalNeighborIdx++;
+        g_aggressiveSpinRetuneStarted = false;
+        continue;
+      }
+      if (g_spinComboRetuneActive.load())
+        break;
+      if (g_aggressiveSpinStage == AGGRESSIVE_SPIN_STAGE_SEED_SCAN) {
+        if (g_aggressiveSpinSeedPhase == AGGRESSIVE_SPIN_SEED_PHASE_RAW_SCAN) {
+          if (g_aggressiveSpinSeedIndex >= g_aggressiveSpinSeedCount) {
+            buildAggressiveSpinPromotedSeedList();
+            g_aggressiveSpinPromotedSeedIndex = 0;
+            g_aggressiveSpinSeedPrepared = false;
+            g_aggressiveSpinRefineIdx = 0;
+            g_aggressiveSpinRetuneStarted = false;
+            if (g_aggressiveSpinPromotedSeedCount <= 0) {
+              continueAggressiveSpinAfterSeedScan(instance);
+              if (!g_aggressiveSpinActive.load())
+                break;
+            } else {
+              g_aggressiveSpinSeedPhase = AGGRESSIVE_SPIN_SEED_PHASE_SHAKE;
+            }
+            continue;
+          }
+          if (beginAggressiveSpinSeed(g_aggressiveSpinSeedIndex)) {
+            g_aggressiveSpinRawSeedShots[g_aggressiveSpinSeedIndex] =
+                g_aggressiveSpinCurrentSeedShot;
+          }
+          g_aggressiveSpinSeedPrepared = false;
+          g_aggressiveSpinSeedIndex++;
+          continue;
+        }
+        if (g_aggressiveSpinSeedPhase == AGGRESSIVE_SPIN_SEED_PHASE_SHAKE) {
+          if (g_aggressiveSpinPromotedSeedIndex >=
+              g_aggressiveSpinPromotedSeedCount) {
+            buildAggressiveSpinRetuneSeedList();
+            g_aggressiveSpinRetuneSeedIndex = 0;
+            g_aggressiveSpinSeedPrepared = false;
+            g_aggressiveSpinRetuneStarted = false;
+            if (g_aggressiveSpinRetuneSeedCount <= 0) {
+              continueAggressiveSpinAfterSeedScan(instance);
+              if (!g_aggressiveSpinActive.load())
+                break;
+            } else {
+              g_aggressiveSpinSeedPhase = AGGRESSIVE_SPIN_SEED_PHASE_RETUNE;
+            }
+            continue;
+          }
+          if (!g_aggressiveSpinSeedPrepared &&
+              !beginAggressiveSpinPromotedSeed(
+                  g_aggressiveSpinPromotedSeedIndex)) {
+            g_aggressiveSpinPromotedSeedIndex++;
+            continue;
+          }
+          bool useFullShakePass = aggressiveSpinUseFullShakePass();
+          const float *dirShakes =
+              useFullShakePass ? REFINE_DIR_SHAKES : AGG_LIGHT_DIR_SHAKES;
+          const float *pwrShakes =
+              useFullShakePass ? REFINE_PWR_SHAKES : AGG_LIGHT_PWR_SHAKES;
+          int dirShakeCount =
+              useFullShakePass ? REFINE_DIR_COUNT : AGG_LIGHT_SHAKE_COUNT;
+          int pwrShakeCount =
+              useFullShakePass ? REFINE_PWR_COUNT : AGG_LIGHT_SHAKE_COUNT;
+          int totalShakes = dirShakeCount + pwrShakeCount;
+          if (g_aggressiveSpinRefineIdx < totalShakes) {
+            bool isDir = (g_aggressiveSpinRefineIdx < dirShakeCount);
+            float dirDelta = 0.0f;
+            float pwrDelta = 0.0f;
+            if (isDir) {
+              dirDelta = dirShakes[g_aggressiveSpinRefineIdx];
+            } else {
+              int pwrIdx = g_aggressiveSpinRefineIdx - dirShakeCount;
+              pwrDelta = pwrShakes[pwrIdx];
+            }
+            SpinSearchShotState candidateShot = g_aggressiveSpinCurrentSeedShot;
+            if (dirDelta != 0.0f)
+              rotateDirectionXZ(&candidateShot.dirX, &candidateShot.dirZ,
+                                dirDelta);
+            candidateShot.powerPct = clampPreviewPowerPctValue(
+                g_aggressiveSpinCurrentSeedShot.powerPct + pwrDelta);
+            simulateSpinSearchShotQuiet(&candidateShot);
+            if (isBetterAggressiveSpinFunnelShot(
+                    candidateShot, g_aggressiveSpinCurrentShakeBestShot)) {
+              g_aggressiveSpinCurrentShakeBestShot = candidateShot;
+            }
+            g_aggressiveSpinRefineIdx++;
+            continue;
+          }
+          int seedIndex =
+              g_aggressiveSpinPromotedSeedOrder[g_aggressiveSpinPromotedSeedIndex];
+          if (seedIndex >= 0 && seedIndex < g_aggressiveSpinSeedCount) {
+            g_aggressiveSpinShakenSeedShots[seedIndex] =
+                g_aggressiveSpinCurrentShakeBestShot;
+          }
+          g_aggressiveSpinPromotedSeedIndex++;
+          g_aggressiveSpinSeedPrepared = false;
+          g_aggressiveSpinRefineIdx = 0;
+          continue;
+        }
+        if (g_aggressiveSpinRetuneSeedIndex >= g_aggressiveSpinRetuneSeedCount) {
+          continueAggressiveSpinAfterSeedScan(instance);
+          if (!g_aggressiveSpinActive.load())
+            break;
+          continue;
+        }
+        if (!g_aggressiveSpinRetuneStarted) {
+          int seedIndex =
+              g_aggressiveSpinRetuneSeedOrder[g_aggressiveSpinRetuneSeedIndex];
+          if (seedIndex < 0 || seedIndex >= g_aggressiveSpinSeedCount) {
+            g_aggressiveSpinRetuneSeedIndex++;
+            continue;
+          }
+          if (!startSpinComboRetune(g_aggressiveSpinShakenSeedShots[seedIndex])) {
+            g_aggressiveSpinRetuneSeedIndex++;
+            if (g_aggressiveSpinRetuneSeedIndex >=
+                g_aggressiveSpinRetuneSeedCount) {
+              continueAggressiveSpinAfterSeedScan(instance);
+              if (!g_aggressiveSpinActive.load())
+                break;
+            }
+          } else {
+            g_aggressiveSpinRetuneStarted = true;
+          }
+          continue;
+        }
+        g_aggressiveSpinRetuneSeedIndex++;
+        g_aggressiveSpinRetuneStarted = false;
+        if (g_aggressiveSpinRetuneSeedIndex >= g_aggressiveSpinRetuneSeedCount) {
+          continueAggressiveSpinAfterSeedScan(instance);
+          if (!g_aggressiveSpinActive.load())
+            break;
+        }
+        continue;
+      }
+      if (g_aggressiveSpinLocalNeighborIdx == 0) {
+        g_aggressiveSpinLocalRoundBestShot = g_aggressiveSpinLocalCenterShot;
+        if (g_aggSpinClimbMode == 2) {
+          g_aggSpinTriageActive = true;
+          g_aggSpinTriageHasBest = false;
+          g_aggSpinTriageBestRetuned = SpinSearchShotState{};
+          g_aggSpinTriageBestCandidate = SpinSearchShotState{};
+          g_aggSpinTriageCurrentCandidate = SpinSearchShotState{};
+          g_aggSpinWinnerPending = false;
+          g_aggSpinWinnerStarted = false;
+        } else {
+          g_aggSpinTriageActive = false;
+          g_aggSpinTriageHasBest = false;
+          g_aggSpinWinnerPending = false;
+          g_aggSpinWinnerStarted = false;
+        }
+      }
+      if (g_aggressiveSpinLocalNeighborIdx >= 8) {
+        if (g_aggSpinClimbMode == 2 && g_aggSpinTriageActive) {
+          g_aggSpinTriageActive = false;
+          if (g_aggSpinTriageHasBest) {
+            g_aggSpinWinnerPending = true;
+          }
+        }
+        if (g_aggSpinClimbMode == 2 && g_aggSpinWinnerPending &&
+            !g_aggSpinWinnerStarted) {
+          if (startSpinComboRetuneCapped(g_aggSpinTriageBestCandidate, 0)) {
+            g_aggSpinWinnerStarted = true;
+            break;
+          }
+          g_aggSpinWinnerPending = false;
+          g_aggSpinTriageHasBest = false;
+        }
+        if (isBetterSpinSearchShot(g_aggressiveSpinLocalRoundBestShot,
+                                   g_aggressiveSpinLocalCenterShot)) {
+          if (commitAggressiveSpinShotToLiveCue(
+                  instance, g_aggressiveSpinLocalRoundBestShot) &&
+              g_aggressiveSpinHasCommittedShot) {
+            g_aggressiveSpinLocalCenterShot = g_aggressiveSpinCommittedShot;
+            g_aggressiveSpinBestShot = g_aggressiveSpinCommittedShot;
+            g_aggressiveSpinLocalNeighborIdx = 0;
+            continue;
+          }
+        }
+        if (g_aggressiveSpinLocalPhase < aggressiveSpinDepthCap()) {
+          g_aggressiveSpinLocalPhase++;
+          g_aggressiveSpinLocalNeighborIdx = 0;
+          continue;
+        }
+        finishAggressiveSpinSearch(instance);
+        break;
+      }
+      if (!g_aggressiveSpinRetuneStarted) {
+        int dsx = SPIN_NEIGHBOR_X[g_aggressiveSpinLocalNeighborIdx];
+        int dsy = SPIN_NEIGHBOR_Y[g_aggressiveSpinLocalNeighborIdx];
+        float spinStep = spinSearchStep(g_aggressiveSpinLocalPhase);
+        SpinSearchShotState candidateShot = g_aggressiveSpinLocalCenterShot;
+        candidateShot.spinX += dsx * spinStep;
+        candidateShot.spinY += dsy * spinStep;
+        normalizeSpinToUnitDisk(&candidateShot.spinX, &candidateShot.spinY);
+        if (fabsf(candidateShot.spinX - g_aggressiveSpinLocalCenterShot.spinX) <=
+                1e-6f &&
+            fabsf(candidateShot.spinY - g_aggressiveSpinLocalCenterShot.spinY) <=
+                1e-6f) {
+          g_aggressiveSpinLocalNeighborIdx++;
+          continue;
+        }
+        if (!isAggressiveSpinRegionEnabled(candidateShot.spinX,
+                                           candidateShot.spinY)) {
+          g_aggressiveSpinLocalNeighborIdx++;
+          continue;
+        }
+        SpinSearchShotState rawCandidateShot = candidateShot;
+        simulateSpinSearchShotQuiet(&rawCandidateShot);
+        if (!isBetterAggressiveSpinFunnelShot(rawCandidateShot,
+                                              g_aggressiveSpinLocalCenterShot) &&
+            rawCandidateShot.dist >
+                (g_aggressiveSpinLocalCenterShot.dist *
+                 aggressiveSpinLocalSlackFactor())) {
+          g_aggressiveSpinLocalNeighborIdx++;
+          continue;
+        }
+        g_aggSpinTriageCurrentCandidate = candidateShot;
+        bool started = false;
+        if (g_aggSpinClimbMode == 2 && g_aggSpinTriageActive) {
+          started = startSpinComboRetuneCapped(candidateShot, 5);
+        } else {
+          started = startSpinComboRetune(candidateShot);
+        }
+        if (!started) {
+          g_aggressiveSpinLocalNeighborIdx++;
+        } else {
+          g_aggressiveSpinRetuneStarted = true;
+        }
+        continue;
+      }
+      g_aggressiveSpinLocalNeighborIdx++;
+      g_aggressiveSpinRetuneStarted = false;
+      continue;
+    }
+  } else if (g_aggressiveSpinActive.load() && !g_isInTrickShotMode) {
+    clearSpinSearchRuntimeState();
+  }
+  if (g_autoAimStart.exchange(false) && g_isInTrickShotMode && g_hasGhostCueBallPos) {
+    if (instance) {
+      applyPreferredShotIfAvailable(instance);
+      syncLiveSpinFromCueController(instance);
+      float previewForce = previewPowerPct / 100.0f;
+      runPoolGhostSimulationForInstance(instance, previewForce, lastSpinX, lastSpinY);
+      rememberRestoreShotFromLiveIfBetter(instance);
+    }
+    g_autoAimBestDist = computeGhostTargetDistance();
+    g_autoAimPhase = adaptivePhase(g_autoAimBestDist);
+    g_autoAimDir = 1.0f;
+    g_autoAimTriedReverse = false;
+    g_autoAimActive.store(true);
+    g_autoAimWorseCount = 0;
+    if (g_autoAimComboMode) {
+      g_autoAimCycleStartDist = g_autoAimBestDist;
+      g_comboNeighborIdx      = 0;
+      g_comboCenterPower      = previewPowerPct;
+      g_comboCenterDist       = g_autoAimBestDist;
+      g_comboBestNeighborDist = g_autoAimBestDist;
+      g_comboBestNeighborDir  = 0;
+      g_comboBestNeighborPwr  = 0;
+    }
+  }
+    static const int AUTO_AIM_BATCH_SIZE = 25; 
+  bool autoAimWasActive = g_autoAimActive.load();
+  if (g_autoAimActive.load() && g_isInTrickShotMode && instance) {
+    for (int _batch = 0; _batch < AUTO_AIM_BATCH_SIZE; _batch++) {
+      if (!g_autoAimActive.load()) break; 
+      if (g_autoAimComboMode) {
+        if (!orig_RotateCue) { g_autoAimActive.store(false); break; }
+        if (g_comboNeighborIdx == 0) {
+          g_comboCenterPower      = previewPowerPct;
+          g_comboCenterDist       = g_autoAimBestDist;
+          g_comboBestNeighborDist = g_autoAimBestDist;
+          g_comboBestNeighborDir  = 0;
+          g_comboBestNeighborPwr  = 0;
+        }
+        int ddir = COMBO_NEIGHBOR_DIR[g_comboNeighborIdx];
+        int dpwr = COMBO_NEIGHBOR_PWR[g_comboNeighborIdx];
+        if (ddir != 0)
+          orig_RotateCue(instance, ddir * autoAimStepDeg(g_autoAimPhase), nullptr);
+        if (dpwr != 0) {
+          previewPowerPct += dpwr * autoAimStepPct(g_autoAimPhase);
+          if (previewPowerPct < 0.01f)  previewPowerPct = 0.01f;
+          if (previewPowerPct > 100.0f) previewPowerPct = 100.0f;
+        }
+        {
+          float previewForce = previewPowerPct / 100.0f;
+          auto *dir = reinterpret_cast<float *>(
+              reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+          if (hasGhostData && hasRustBridgeData)
+            performGhostSimulation(dir[0], dir[2], previewForce, lastSpinX, lastSpinY);
+          else
+            performPreShotGhostSimulation(dir[0], dir[2], previewForce, lastSpinX, lastSpinY);
+        }
+        {
+          float dist = computeGhostTargetDistance();
+          if (dist < g_comboBestNeighborDist) {
+            g_comboBestNeighborDist = dist;
+            g_comboBestNeighborDir  = ddir;
+            g_comboBestNeighborPwr  = dpwr;
+          }
+        }
+        if (ddir != 0)
+          orig_RotateCue(instance, -ddir * autoAimStepDeg(g_autoAimPhase), nullptr);
+        previewPowerPct = g_comboCenterPower;
+        g_comboNeighborIdx++;
+        if (g_comboNeighborIdx == 8) {
+          if (g_comboBestNeighborDist < g_comboCenterDist) {
+            if (g_comboBestNeighborDir != 0)
+              orig_RotateCue(instance, g_comboBestNeighborDir * autoAimStepDeg(g_autoAimPhase), nullptr);
+            previewPowerPct = g_comboCenterPower + g_comboBestNeighborPwr * autoAimStepPct(g_autoAimPhase);
+            if (previewPowerPct < 0.01f)  previewPowerPct = 0.01f;
+            if (previewPowerPct > 100.0f) previewPowerPct = 100.0f;
+            g_autoAimBestDist  = g_comboBestNeighborDist;
+            syncLiveSpinFromCueController(instance);
+            runPoolGhostSimulationForInstance(instance, previewPowerPct / 100.0f,
+                                              lastSpinX, lastSpinY);
+            rememberRestoreShotFromLiveIfBetter(instance);
+            g_comboNeighborIdx = 0; 
+          } else {
+            if (g_autoAimPhase < 6) {
+              g_autoAimPhase++;
+              g_comboNeighborIdx = 0;
+            } else {
+              syncPowerAutoAimUI();
+              g_autoAimActive.store(false);
+              g_autoAimComboMode = false;
+              break;
+            }
+          }
+        }
+      } else {
+        if (!g_autoAimIsPowerMode) {
+          if (!orig_RotateCue) { g_autoAimActive.store(false); break; }
+          float step = autoAimStepDeg(g_autoAimPhase) * g_autoAimDir;
+          orig_RotateCue(instance, step, nullptr);
+        } else {
+          float step = autoAimStepPct(g_autoAimPhase) * g_autoAimDir;
+          previewPowerPct += step;
+          if (previewPowerPct < 0.01f) previewPowerPct = 0.01f;
+          if (previewPowerPct > 100.0f) previewPowerPct = 100.0f;
+        }
+        {
+          float previewForce = previewPowerPct / 100.0f;
+          auto *dir = reinterpret_cast<float *>(
+              reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+          float ghostDir0 = dir[0];
+          float ghostDir1 = dir[2];
+          if (hasGhostData && hasRustBridgeData) {
+            performGhostSimulation(ghostDir0, ghostDir1, previewForce, lastSpinX, lastSpinY);
+          } else {
+            performPreShotGhostSimulation(ghostDir0, ghostDir1, previewForce, lastSpinX, lastSpinY);
+          }
+        }
+        float dist = computeGhostTargetDistance();
+        if (dist < g_autoAimBestDist) {
+          g_autoAimBestDist = dist;
+          bool targetMoved = g_ghostTargetBallMoved;
+          rememberRestoreShotFromLiveIfBetter(instance, dist, &targetMoved);
+          g_autoAimTriedReverse = false;
+          g_autoAimWorseCount = 0;
+          continue; 
+        }
+        g_autoAimWorseCount++;
+        if (g_autoAimWorseCount <= 3) {
+          continue;
+        }
+        int rollbackSteps = g_autoAimWorseCount;
+        g_autoAimWorseCount = 0;
+        if (!g_autoAimIsPowerMode) {
+          if (orig_RotateCue) {
+            float step = autoAimStepDeg(g_autoAimPhase) * g_autoAimDir;
+            orig_RotateCue(instance, -(step * rollbackSteps), nullptr);
+          }
+        } else {
+          float step = autoAimStepPct(g_autoAimPhase) * g_autoAimDir;
+          previewPowerPct -= (step * rollbackSteps);
+          if (previewPowerPct < 0.01f) previewPowerPct = 0.01f;
+          if (previewPowerPct > 100.0f) previewPowerPct = 100.0f;
+        }
+        if (!g_autoAimTriedReverse) {
+          g_autoAimDir = -g_autoAimDir;
+          g_autoAimTriedReverse = true;
+        } else if (g_autoAimPhase < 6) {
+          g_autoAimPhase++;
+          g_autoAimDir = 1.0f;
+          g_autoAimTriedReverse = false;
+        } else {
+          if (!g_autoAimIsPowerMode && g_autoAimModePower) {
+            g_autoAimIsPowerMode = true;
+            g_autoAimBestDist = computeGhostTargetDistance();
+            g_autoAimPhase = adaptivePhase(g_autoAimBestDist);
+            g_autoAimDir = 1.0f;
+            g_autoAimTriedReverse = false;
+          } else {
+            g_autoAimActive.store(false);
+            if (g_autoAimIsPowerMode) syncPowerAutoAimUI();
+            break; 
+          }
+        }
+      } 
+    } 
+    g_refreshPreview.store(true);
+  } else if (g_autoAimActive.load() && !g_isInTrickShotMode) {
+    g_autoAimActive.store(false);
+    if (g_autoAimIsPowerMode) syncPowerAutoAimUI();
+  }
+  if (autoAimWasActive && !g_autoAimActive.load() && g_isInTrickShotMode &&
+      instance) {
+    rememberPreferredShotFromLive(instance);
+  }
+  autoAimEnd:;
+  if (g_refineStart.exchange(false) && g_isInTrickShotMode && instance
+      && g_autoAimModeDirection && g_autoAimModePower) {
+    {
+      auto *sdir = reinterpret_cast<float *>(
+          reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+      g_refineSnapDirX  = sdir[0];
+      g_refineSnapDirZ  = sdir[2];
+      g_refineSnapPower = previewPowerPct;
+    }
+    applyPreferredShotIfAvailable(instance);
+    syncLiveSpinFromCueController(instance);
+    runPoolGhostSimulationForInstance(instance, previewPowerPct / 100.0f,
+                                      lastSpinX, lastSpinY);
+    g_refineBasePower    = previewPowerPct;
+    g_refineBestDist     = computeGhostTargetDistance();
+    g_refineSnapDist     = g_refineBestDist; 
+    g_refineBestDirDelta = 0.0f;
+    g_refineBestPwrDelta = 0.0f;
+    g_refineIdx          = 0;
+    g_refineActive.store(true);
+    rememberRestoreShotFromLiveIfBetter(instance);
+  }
+  if (g_refineActive.load() && g_isInTrickShotMode && instance) {
+    int total = REFINE_RING_COUNT; 
+    while (g_refineIdx < total) {
+      float dirDelta = REFINE_RING_DIR[g_refineIdx];
+      float pwrDelta = REFINE_RING_PWR[g_refineIdx];
+      if (dirDelta != 0.0f && orig_RotateCue)
+        orig_RotateCue(instance, dirDelta, nullptr);
+      previewPowerPct = g_refineBasePower + pwrDelta;
+      if (previewPowerPct < 0.01f)  previewPowerPct = 0.01f;
+      if (previewPowerPct > 100.0f) previewPowerPct = 100.0f;
+      {
+        float previewForce = previewPowerPct / 100.0f;
+        auto *dir = reinterpret_cast<float *>(
+            reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+        if (hasGhostData && hasRustBridgeData)
+          performGhostSimulation(dir[0], dir[2], previewForce, lastSpinX, lastSpinY);
+        else
+          performPreShotGhostSimulation(dir[0], dir[2], previewForce, lastSpinX, lastSpinY);
+      }
+      {
+        float dist = computeGhostTargetDistance();
+        if (dist < g_refineBestDist) {
+          g_refineBestDist     = dist;
+          g_refineBestDirDelta = dirDelta;
+          g_refineBestPwrDelta = pwrDelta;
+          bool targetMoved = g_ghostTargetBallMoved;
+          rememberRestoreShotFromLiveIfBetter(instance, dist, &targetMoved);
+        }
+      }
+      if (dirDelta != 0.0f && orig_RotateCue)
+        orig_RotateCue(instance, -dirDelta, nullptr);
+      previewPowerPct = g_refineBasePower;
+      g_refineIdx++;
+    }
+    g_refineActive.store(false);
+    if (g_refineBestDirDelta != 0.0f && orig_RotateCue)
+      orig_RotateCue(instance, g_refineBestDirDelta, nullptr);
+    previewPowerPct = g_refineBasePower + g_refineBestPwrDelta;
+    if (previewPowerPct < 0.01f)  previewPowerPct = 0.01f;
+    if (previewPowerPct > 100.0f) previewPowerPct = 100.0f;
+    syncPowerAutoAimUI();
+    g_autoAimIsPowerMode = false;
+    g_autoAimComboMode   = true;
+    g_autoAimStart.store(true);
+    g_refreshPreview.store(true);
+    g_refineVerifyPending.store(true); 
+  } else if (g_refineActive.load() && !g_isInTrickShotMode) {
+    g_refineActive.store(false); 
+  }
+  if (g_aggRefineStart.exchange(false) && g_isInTrickShotMode && instance
+      && g_autoAimModeDirection && g_autoAimModePower) {
+    {
+      auto *sdir = reinterpret_cast<float *>(
+          reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+      g_refineSnapDirX  = sdir[0];
+      g_refineSnapDirZ  = sdir[2];
+      g_refineSnapPower = previewPowerPct;
+    }
+    applyPreferredShotIfAvailable(instance);
+    syncLiveSpinFromCueController(instance);
+    runPoolGhostSimulationForInstance(instance, previewPowerPct / 100.0f,
+                                      lastSpinX, lastSpinY);
+    g_aggRefineBasePower    = previewPowerPct;
+    g_aggRefineBestDist     = computeGhostTargetDistance();
+    g_refineSnapDist        = g_aggRefineBestDist; 
+    g_aggRefineBestDirDelta = 0.0f;
+    g_aggRefineBestPwrDelta = 0.0f;
+    g_aggRefineIdx          = 0;
+    g_aggRefineActive.store(true);
+    rememberRestoreShotFromLiveIfBetter(instance);
+  }
+  if (g_aggRefineActive.load() && g_isInTrickShotMode && instance) {
+    int total = AGG_REFINE_RING_COUNT; 
+    while (g_aggRefineIdx < total) {
+      float dirDelta = AGG_REFINE_RING_DIR[g_aggRefineIdx];
+      float pwrDelta = AGG_REFINE_RING_PWR[g_aggRefineIdx];
+      if (dirDelta != 0.0f && orig_RotateCue)
+        orig_RotateCue(instance, dirDelta, nullptr);
+      previewPowerPct = g_aggRefineBasePower + pwrDelta;
+      if (previewPowerPct < 0.01f)  previewPowerPct = 0.01f;
+      if (previewPowerPct > 100.0f) previewPowerPct = 100.0f;
+      {
+        float previewForce = previewPowerPct / 100.0f;
+        auto *dir = reinterpret_cast<float *>(
+            reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+        if (hasGhostData && hasRustBridgeData)
+          performGhostSimulation(dir[0], dir[2], previewForce, lastSpinX, lastSpinY);
+        else
+          performPreShotGhostSimulation(dir[0], dir[2], previewForce, lastSpinX, lastSpinY);
+      }
+      {
+        float dist = computeGhostTargetDistance();
+        if (dist < g_aggRefineBestDist) {
+          g_aggRefineBestDist     = dist;
+          g_aggRefineBestDirDelta = dirDelta;
+          g_aggRefineBestPwrDelta = pwrDelta;
+          bool targetMoved = g_ghostTargetBallMoved;
+          rememberRestoreShotFromLiveIfBetter(instance, dist, &targetMoved);
+        }
+      }
+      if (dirDelta != 0.0f && orig_RotateCue)
+        orig_RotateCue(instance, -dirDelta, nullptr);
+      previewPowerPct = g_aggRefineBasePower;
+      g_aggRefineIdx++;
+    }
+    g_aggRefineActive.store(false);
+    if (g_aggRefineBestDirDelta != 0.0f && orig_RotateCue)
+      orig_RotateCue(instance, g_aggRefineBestDirDelta, nullptr);
+    previewPowerPct = g_aggRefineBasePower + g_aggRefineBestPwrDelta;
+    if (previewPowerPct < 0.01f)  previewPowerPct = 0.01f;
+    if (previewPowerPct > 100.0f) previewPowerPct = 100.0f;
+    syncPowerAutoAimUI();
+    g_autoAimIsPowerMode = false;
+    g_autoAimComboMode   = true;
+    g_autoAimStart.store(true);
+    g_refreshPreview.store(true);
+    g_refineVerifyPending.store(true); 
+  } else if (g_aggRefineActive.load() && !g_isInTrickShotMode) {
+    g_aggRefineActive.store(false); 
+  }
+  if (g_refineVerifyPending.load()
+      && !g_autoAimStart.load()
+      && !g_autoAimActive.load()
+      && !g_refineActive.load()
+      && !g_aggRefineActive.load()) {
+    g_refineVerifyPending.store(false);
+    if (instance && orig_RotateCue && g_isInTrickShotMode) {
+      float finalDist = computeGhostTargetDistance();
+      if (finalDist >= g_refineSnapDist - 1e-6f) {
+        auto *fdir = reinterpret_cast<float *>(
+            reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+        float curX = fdir[0];
+        float curZ = fdir[2];
+        float crossXZ = curX * g_refineSnapDirZ - curZ * g_refineSnapDirX;
+        float dotXZ   = curX * g_refineSnapDirX + curZ * g_refineSnapDirZ;
+        float angleDeg = atan2f(crossXZ, dotXZ) * (180.0f / (float)M_PI);
+        if (fabsf(angleDeg) > 1e-5f)
+          orig_RotateCue(instance, angleDeg, nullptr);
+        previewPowerPct = g_refineSnapPower;
+        if (previewPowerPct < 0.01f)  previewPowerPct = 0.01f;
+        if (previewPowerPct > 100.0f) previewPowerPct = 100.0f;
+        syncPowerAutoAimUI();
+        g_refreshPreview.store(true);
+        withJNIEnv([&](JNIEnv *env) {
+          showToast(env, decryptStr(ENC_NO_IMPROVEMENT,
+                                    sizeof(ENC_NO_IMPROVEMENT)).c_str());
+        });
+      } else {
+        withJNIEnv([&](JNIEnv *env) {
+          showToast(env, decryptStr(ENC_IMPROVED,
+                                    sizeof(ENC_IMPROVED)).c_str());
+        });
+      }
+    }
+  }
+  if (g_smartAimStart.exchange(false) && g_isInTrickShotMode && instance) {
+    syncLiveSpinFromCueController(instance);
+    std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+    if (!g_savedShots.empty()) {
+      g_smartAimActive = true;
+      g_smartAimIndex = 0;
+      g_smartAimBestIndex = -1;
+      g_smartAimBestDist = 1e9f;
+    }
+  }
+  if (g_smartAimActive && g_isInTrickShotMode && instance) {
+    int totalShots;
+    SavedShot candidate;
+    {
+      std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+      totalShots = (int)g_savedShots.size();
+      if (g_smartAimIndex < totalShots) {
+        candidate = g_savedShots[g_smartAimIndex];
+      }
+    }
+    if (g_smartAimIndex < totalShots) {
+      syncLiveSpinFromCueController(instance);
+      float simForce = candidate.power / 100.0f;
+      runPoolGhostSimulation(candidate.dir0, candidate.dir1, simForce,
+                             lastSpinX, lastSpinY);
+      pushTrajectoryToOverlay();
+      if (g_hasGhostCueBallPos) {
+        float dist = computeGhostTargetDistance();
+        if (dist < g_smartAimBestDist) {
+          g_smartAimBestDist = dist;
+          g_smartAimBestIndex = g_smartAimIndex;
+        }
+      }
+      g_smartAimIndex++;
+    } else {
+      g_smartAimActive = false;
+      if (g_smartAimBestIndex >= 0) {
+        SavedShot best;
+        {
+          std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+          if (g_smartAimBestIndex < (int)g_savedShots.size()) {
+            best = g_savedShots[g_smartAimBestIndex];
+          } else {
+            goto smartAimDone;
+          }
+        }
+        auto *curDir = reinterpret_cast<float *>(
+            reinterpret_cast<uintptr_t>(instance) + OFF_CURRENT_DIR_SYNCED);
+        float curAngle = atan2f(curDir[2], curDir[0]);
+        float bestAngle = atan2f(best.dir1, best.dir0);
+        float deltaRad = bestAngle - curAngle;
+        while (deltaRad > 3.14159265f) deltaRad -= 6.28318530f;
+        while (deltaRad < -3.14159265f) deltaRad += 6.28318530f;
+        float deltaDeg = deltaRad * (180.0f / 3.14159265f);
+        if (orig_RotateCue && fabsf(deltaDeg) > 0.000001f) {
+          orig_RotateCue(instance, deltaDeg, nullptr);
+        }
+        previewPowerPct = best.power;
+        syncPowerAutoAimUI();
+        g_refreshPreview.store(true);
+        withJNIEnv([&](JNIEnv *env) {
+          char msg[64];
+          std::string fmt = decryptStr(ENC_SMART_DONE_FMT, sizeof(ENC_SMART_DONE_FMT));
+          snprintf(msg, sizeof(msg), fmt.c_str(), (double)g_smartAimBestDist);
+          showToast(env, msg);
+        });
+      }
+      smartAimDone:;
+    }
+  } else if (g_smartAimActive && !g_isInTrickShotMode) {
+    g_smartAimActive = false; 
+  }
+#endif 
+}
+void my_RotateCue(void *instance, float angle, void *methodInfo) {
+  if (orig_RotateCue)
+    orig_RotateCue(instance, angle, methodInfo);
+  if (!instance)
+    return;
+  lastPoolGameController = instance; 
+  static bool integ2Done = false;
+  if (!integ2Done) {
+    integ2Done = true;
+    if (checkFileIntegrity2()) scheduleStealthCrash();
+  }
+  STEALTH_ANTI_FRIDA(checkProcFD, 5300)
+  if (!hasSavedCueBallPos && GetPositionAndRotation_func) {
+    void *bihCtrl = *reinterpret_cast<void **>(
+        reinterpret_cast<uintptr_t>(instance) + OFF_POOLGAMECONTROLLER_BIH);
+    if (bihCtrl) {
+      void *xform = *reinterpret_cast<void **>(
+          reinterpret_cast<uintptr_t>(bihCtrl) + OFF_BIH_CUEBALL_TRANSFORM);
+      if (xform) {
+        float outPos[3] = {0}, outRot[4] = {0};
+        GetPositionAndRotation_func(xform, outPos, outRot);
+        if (outPos[1] > 0.1f && outPos[1] < 3.0f) {
+          savedCueBallX = outPos[0];
+          savedCueBallY = outPos[2];
+          savedTableWorldY = outPos[1]; 
+          hasSavedCueBallPos = true;
+        }
+      }
+    }
+  }
+  void *cueCtrl = *reinterpret_cast<void **>(
+      reinterpret_cast<uintptr_t>(instance) + OFF_CUE_CONTROLLER);
+  if (!cueCtrl)
+    return;
+  lastCueController = cueCtrl; 
+  syncLiveSpinFromCueController(instance);
+  auto *dir = reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(instance) +
+                                        OFF_CURRENT_DIR_SYNCED);
+  withJNIEnv([&](JNIEnv *env) {
+    char msg[64];
+    snprintf(msg, sizeof(msg), decryptStr(ENC_FMT_DIR, sizeof(ENC_FMT_DIR)).c_str(), dir[0], dir[1], dir[2]);
+    updateTextView(env, directionTextView, msg);
+  });
+  if (!isSpinSearchOwningCue())
+    rememberPreferredDirection(dir[0], dir[2]);
+  if (g_extendedLinesEnabled) return;
+  if (lastPower > 0.01f) {
+    triggerGhostSimulation();
+  } else if (g_previewLineEnabled && g_predictionLinesEnabled) {
+    float previewForce = previewPowerPct / 100.0f;
+    auto *dir = reinterpret_cast<float *>(
+        reinterpret_cast<uintptr_t>(lastPoolGameController) + OFF_CURRENT_DIR_SYNCED);
+    float ghostDir0 = dir[0];
+    float ghostDir1 = dir[2];
+    if (hasGhostData && hasRustBridgeData) {
+      performGhostSimulation(ghostDir0, ghostDir1, previewForce, lastSpinX, lastSpinY);
+    } else {
+      performPreShotGhostSimulation(ghostDir0, ghostDir1, previewForce, lastSpinX, lastSpinY);
+    }
+  } else {
+    std::lock_guard<std::mutex> lock(trajectoryMutex);
+    cachedTrajectoryScreenCoords.clear();
+    hasNewTrajectory = true;
+  }
+  pushTrajectoryToOverlay();
+}
+typedef void (*BIH_LateUpdate_t)(void *instance, void *methodInfo);
+typedef void (*DropBallFromHand_t)(void *instance, void *methodInfo);
+BIH_LateUpdate_t orig_BIH_LateUpdate = nullptr;
+DropBallFromHand_t orig_DropBallFromHand = nullptr;
+void my_BIH_LateUpdate(void *instance, void *methodInfo) {
+  if (orig_BIH_LateUpdate)
+    orig_BIH_LateUpdate(instance, methodInfo);
+  if (!instance)
+    return;
+  bool isBIH = *reinterpret_cast<bool *>(reinterpret_cast<uintptr_t>(instance) +
+                                         OFF_BIH_ISCUEBALLINHAND);
+  if (isBIH) {
+    float *posArr = reinterpret_cast<float *>(
+        reinterpret_cast<uintptr_t>(instance) + OFF_BIH_CUEBALLPOSITION);
+    if (posArr[1] == 1.0f) { 
+      float dx = posArr[0] - savedCueBallX;
+      float dz = posArr[2] - savedCueBallY;
+      if (dx * dx + dz * dz > 0.000001f) {
+        savedCueBallX = posArr[0];
+        savedCueBallY = posArr[2];
+        hasSavedCueBallPos = true;
+        triggerGhostSimulation(); 
+      }
+    }
+  }
+}
+void my_DropBallFromHand(void *instance, void *methodInfo) {
+  if (orig_DropBallFromHand)
+    orig_DropBallFromHand(instance, methodInfo);
+  if (!instance)
+    return;
+  void *bihCtrl = *reinterpret_cast<void **>(
+      reinterpret_cast<uintptr_t>(instance) + OFF_POOLGAMECONTROLLER_BIH);
+  if (bihCtrl) {
+    float *posArr = reinterpret_cast<float *>(
+        reinterpret_cast<uintptr_t>(bihCtrl) + OFF_BIH_CUEBALLPOSITION);
+    if (posArr[1] == 1.0f) {
+      savedCueBallX = posArr[0];
+      savedCueBallY = posArr[2];
+      hasSavedCueBallPos = true;
+      triggerGhostSimulation(); 
+    }
+  }
+}
+void my_ApplySpin(void *instance, float x, float y, void *methodInfo) {
+  if (orig_ApplySpin)
+    orig_ApplySpin(instance, x, y, methodInfo);
+  if (isSpinSearchOwningCue())
+    clearSpinSearchRuntimeState();
+  STEALTH_ANTI_FRIDA(checkThreadNames, 3700)
+  rememberPreferredSpin(x, y);
+  triggerGhostSimulation();
+}
+void my_SetLastLocalShotInfo(void *shotInfo, void *methodInfo) {
+  if (orig_SetLastLocalShotInfo)
+    orig_SetLastLocalShotInfo(shotInfo, methodInfo);
+  if (!shotInfo)
+    return;
+  auto si = reinterpret_cast<uintptr_t>(shotInfo);
+  auto dirArr = *reinterpret_cast<uintptr_t *>(si + 0x10);
+  if (dirArr) {
+    lastCapturedShotInfo.dir0 = *reinterpret_cast<float *>(dirArr + 0x20);
+    lastCapturedShotInfo.dir1 = *reinterpret_cast<float *>(dirArr + 0x24);
+  }
+  lastCapturedShotInfo.force = *reinterpret_cast<float *>(si + 0x18);
+  auto spinArr = *reinterpret_cast<uintptr_t *>(si + 0x20);
+  if (spinArr) {
+    lastCapturedShotInfo.spin0 = *reinterpret_cast<float *>(spinArr + 0x20);
+    lastCapturedShotInfo.spin1 = *reinterpret_cast<float *>(spinArr + 0x24);
+  }
+  lastCapturedShotInfo.randOff = *reinterpret_cast<uint8_t *>(si + 0x30);
+  lastCapturedShotInfo.brkPow = *reinterpret_cast<uint8_t *>(si + 0x31);
+  lastCapturedShotInfo.incline = *reinterpret_cast<float *>(si + 0x34);
+  lastCapturedShotInfo.valid = true;
+  localShotPending = true;
+}
+#define BALL_MARKER -9999.0f
+#define BALL_WORLD_RADIUS 0.0308f
+void extractTrajectoryFromResponse(PoolSimulationResponse *response) {
+  if (response == nullptr) {
+    return;
+  }
+  Il2CppArray *playbackObjects = response->playback_objects;
+  if (playbackObjects == nullptr) {
+    return;
+  }
+  size_t numBalls = playbackObjects->max_length;
+  if (numBalls == 0) {
+    return;
+  }
+  void *mainCamera = GetMainCamera_func ? GetMainCamera_func() : nullptr;
+  if (mainCamera == nullptr) {
+    return;
+  }
+  int screenHeight =
+      GetPixelHeight_func ? GetPixelHeight_func(mainCamera, nullptr) : 1080;
+  std::vector<float> screenCoords;
+  Il2CppArray **ballArrays =
+      il2cpp_array_get_ptr<Il2CppArray *>(playbackObjects);
+  for (size_t ballIdx = 0; ballIdx < numBalls; ballIdx++) {
+    Il2CppArray *ballFrames = ballArrays[ballIdx];
+    if (ballFrames == nullptr)
+      continue;
+    size_t numFrames = ballFrames->max_length;
+    if (numFrames < 2)
+      continue;
+    Il2CppArray **frameArrays = il2cpp_array_get_ptr<Il2CppArray *>(ballFrames);
+    Il2CppArray *firstFrame = frameArrays[0];
+    Il2CppArray *lastFrame = frameArrays[numFrames - 1];
+    if (firstFrame == nullptr || lastFrame == nullptr)
+      continue;
+    if (firstFrame->max_length < 2 || lastFrame->max_length < 2)
+      continue;
+    float *firstPos = il2cpp_array_get_ptr<float>(firstFrame);
+    float *lastPos = il2cpp_array_get_ptr<float>(lastFrame);
+    float dx = lastPos[0] - firstPos[0];
+    float dy = lastPos[1] - firstPos[1];
+    if (dx * dx + dy * dy < 0.0001f)
+      continue; 
+    screenCoords.push_back(BALL_MARKER);
+    screenCoords.push_back(static_cast<float>(ballIdx));
+    Vector3 centerWorld = {lastPos[0], savedTableWorldY, lastPos[1]};
+    Vector3 edgeWorld = {lastPos[0] + BALL_WORLD_RADIUS, savedTableWorldY, lastPos[1]};
+    Vector3 centerScreen =
+        WorldToScreenPoint_func(mainCamera, centerWorld, nullptr);
+    Vector3 edgeScreen =
+        WorldToScreenPoint_func(mainCamera, edgeWorld, nullptr);
+    float screenRadius =
+        std::abs(edgeScreen.x - centerScreen.x); 
+    if (screenRadius < 3.0f)
+      screenRadius = 3.0f; 
+    screenCoords.push_back(screenRadius);
+    size_t sampleInterval = numFrames > 100 ? numFrames / 50 : 2;
+    if (sampleInterval < 1)
+      sampleInterval = 1;
+    for (size_t i = 0; i < numFrames; i += sampleInterval) {
+      Il2CppArray *frameData = frameArrays[i];
+      if (frameData == nullptr || frameData->max_length < 2)
+        continue;
+      float *positionData = il2cpp_array_get_ptr<float>(frameData);
+      Vector3 worldPos = {positionData[0], savedTableWorldY, positionData[1]};
+      Vector3 screenPos =
+          WorldToScreenPoint_func(mainCamera, worldPos, nullptr);
+      float androidY = static_cast<float>(screenHeight) - screenPos.y;
+      screenCoords.push_back(screenPos.x);
+      screenCoords.push_back(androidY);
+    }
+    {
+      Vector3 worldPos = {lastPos[0], savedTableWorldY, lastPos[1]};
+      Vector3 screenPos =
+          WorldToScreenPoint_func(mainCamera, worldPos, nullptr);
+      float androidY = static_cast<float>(screenHeight) - screenPos.y;
+      screenCoords.push_back(screenPos.x);
+      screenCoords.push_back(androidY);
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(trajectoryMutex);
+    cachedTrajectoryScreenCoords = std::move(screenCoords);
+    hasNewTrajectory = true;
+  }
+}
+void pushTrajectoryToOverlay() {
+  if (javaVM == nullptr || !hasNewTrajectory)
+    return;
+  JNIEnv *env = nullptr;
+  bool needsDetach = false;
+  int getEnvStat = javaVM->GetEnv((void **)&env, JNI_VERSION_1_6);
+  if (getEnvStat == JNI_EDETACHED) {
+    if (javaVM->AttachCurrentThread(&env, nullptr) == JNI_OK)
+      needsDetach = true;
+    else
+      return;
+  }
+  if (env && overlayView) {
+    std::vector<float> coords;
+    {
+      std::lock_guard<std::mutex> lock(trajectoryMutex);
+      coords = cachedTrajectoryScreenCoords;
+      hasNewTrajectory = false;
+    }
+    auto arraySize = static_cast<jsize>((g_predictionLinesEnabled || g_shootitPredEnabled || g_extendedLinesEnabled) ? coords.size() : 0);
+    jfloatArray coordArray = env->NewFloatArray(arraySize);
+    if (arraySize > 0) {
+      env->SetFloatArrayRegion(coordArray, 0, arraySize, coords.data());
+    }
+    env->CallVoidMethod(overlayView, uiClasses.updateMultiPointsMethod, coordArray);
+    env->DeleteLocalRef(coordArray);
+  }
+  if (needsDetach)
+    javaVM->DetachCurrentThread();
+}
+void deriveGhostKeystream(uint8_t *encrypted) {
+  if (!lastCapturedShotInfo.valid)
+    return;
+  auto &si = lastCapturedShotInfo;
+  uint8_t plain[51] = {0};
+  buildKnownPlaintext(plain, si.dir0, si.dir1, si.force, si.spin0, si.spin1);
+  for (int i = 0; i < 28; i++)
+    ghostKeystream[i] = encrypted[i] ^ plain[i];
+  uint8_t tail[7];
+  buildTailPlaintext(tail, si.randOff, si.brkPow, si.incline);
+  for (int i = 0; i < 7; i++)
+    ghostKeystream[44 + i] = encrypted[44 + i] ^ tail[i];
+  memcpy(ghostOrigEncBytes, encrypted, 51);
+  hasGhostData = true;
+}
+struct MsgPackStrInfo {
+  int offset;
+  int headerLen;
+  int strLen;
+};
+static MsgPackStrInfo findLargestMsgPackString(const uint8_t *blob, int blobLen,
+                                               int skipCount = 0) {
+  MsgPackStrInfo best = {-1, 0, 0};
+  MsgPackStrInfo results[8];
+  int count = 0;
+  for (int i = 0; i < blobLen - 2 && count < 8; i++) {
+    uint8_t b = blob[i];
+    int strLen = -1, headerLen = 0;
+    if (b == 0xd9 && i + 1 < blobLen) {
+      strLen = blob[i + 1];
+      headerLen = 2;
+    } else if (b == 0xda && i + 2 < blobLen) {
+      strLen = (blob[i + 1] << 8) | blob[i + 2];
+      headerLen = 3;
+    } else if (b == 0xdb && i + 4 < blobLen) {
+      strLen = (blob[i + 1] << 24) | (blob[i + 2] << 16) | (blob[i + 3] << 8) |
+               blob[i + 4];
+      headerLen = 5;
+      if (strLen > 100000)
+        continue;
+    } else {
+      continue;
+    }
+    if (strLen > 50 && i + headerLen + strLen <= blobLen) {
+      bool looksLikeText = true;
+      int checkLen = strLen < 20 ? strLen : 20;
+      for (int j = 0; j < checkLen; j++) {
+        uint8_t c = blob[i + headerLen + j];
+        if (c < 0x20 || c > 0x7e) {
+          looksLikeText = false;
+          break;
+        }
+      }
+      if (looksLikeText && count < 8) {
+        results[count++] = {i, headerLen, strLen};
+        i += headerLen + strLen - 1; 
+      }
+    }
+  }
+  for (int i = 0; i < count - 1; i++)
+    for (int j = i + 1; j < count; j++)
+      if (results[j].strLen > results[i].strLen) {
+        MsgPackStrInfo tmp = results[i];
+        results[i] = results[j];
+        results[j] = tmp;
+      }
+  if (skipCount < count)
+    return results[skipCount];
+  return {-1, 0, 0};
+}
+static std::string readIl2CppString(void *strObj) {
+  if (!strObj)
+    return "";
+  auto p = reinterpret_cast<uintptr_t>(strObj);
+  int len = *reinterpret_cast<int *>(p + 0x10);
+  if (len <= 0 || len > 50000)
+    return "";
+  auto *chars = reinterpret_cast<uint16_t *>(p + 0x14);
+  std::string result;
+  result.reserve(len);
+  for (int i = 0; i < len; i++)
+    result.push_back(static_cast<char>(chars[i] & 0xFF));
+  return result;
+}
+static int writeMsgPackStrHeader(uint8_t *dst, int strLen) {
+  if (strLen <= 31) {
+    dst[0] = 0xa0 | strLen;
+    return 1;
+  } else if (strLen <= 255) {
+    dst[0] = 0xd9;
+    dst[1] = strLen;
+    return 2;
+  } else if (strLen <= 65535) {
+    dst[0] = 0xda;
+    dst[1] = (strLen >> 8) & 0xff;
+    dst[2] = strLen & 0xff;
+    return 3;
+  } else {
+    dst[0] = 0xdb;
+    dst[1] = (strLen >> 24) & 0xff;
+    dst[2] = (strLen >> 16) & 0xff;
+    dst[3] = (strLen >> 8) & 0xff;
+    dst[4] = strLen & 0xff;
+    return 5;
+  }
+}
+static bool readFreshPropsFromGameStore(std::string &outEncProps,
+                                        std::string &outSignature) {
+  if (!GameStoreRead_func || !JTokenValueString_func || !il2cppBase) {
+    return false;
+  }
+  void **pKeyEnc =
+      reinterpret_cast<void **>(il2cppBase + getRVA(ENC_BSS_KEY_ENCRYPTED_PROPS));
+  void **pKeySig = reinterpret_cast<void **>(il2cppBase + getRVA(ENC_BSS_KEY_SIGNATURE));
+  void **pMiStr = reinterpret_cast<void **>(il2cppBase + getRVA(ENC_BSS_MI_JTOKEN_STRING));
+  void *keyEnc = *pKeyEnc;
+  void *keySig = *pKeySig;
+  void *miStr = *pMiStr;
+  if (!keyEnc || !keySig || !miStr) {
+    return false;
+  }
+  void *jtokenEnc = GameStoreRead_func(keyEnc, nullptr);
+  if (!jtokenEnc) {
+    return false;
+  }
+  void *encStrObj = JTokenValueString_func(jtokenEnc, miStr);
+  outEncProps = readIl2CppString(encStrObj);
+  if (outEncProps.empty()) {
+    return false;
+  }
+  void *jtokenSig = GameStoreRead_func(keySig, nullptr);
+  if (!jtokenSig) {
+    return false;
+  }
+  void *sigStrObj = JTokenValueString_func(jtokenSig, miStr);
+  outSignature = readIl2CppString(sigStrObj);
+  if (outSignature.empty()) {
+    return false;
+  }
+  return true;
+}
+void performGhostSimulation(float dir0, float dir1, float force, float spin0,
+                            float spin1) {
+  if (!hasGhostData || !hasRustBridgeData || !orig_RustBridgeSimulatePool)
+    return;
+  if (shotInfoMsgpackOffset < 0 || !capturedRustBridgeData)
+    return;
+  uint8_t newPlain[28];
+  buildKnownPlaintext(newPlain, dir0, dir1, force, spin0, spin1);
+  uint8_t newEncBytes[51];
+  for (int i = 0; i < 28; i++)
+    newEncBytes[i] = ghostKeystream[i] ^ newPlain[i];
+  memcpy(&newEncBytes[28], &ghostOrigEncBytes[28], 16); 
+  uint8_t newTailPlain[7];
+  buildTailPlaintext(newTailPlain, 0, 0, 0.0f);
+  for (int i = 0; i < 7; i++)
+    newEncBytes[44 + i] = ghostKeystream[44 + i] ^ newTailPlain[i];
+  uint8_t newSection[256];
+  int newSectionLen = 0;
+  newSection[newSectionLen++] = 0xDC; 
+  newSection[newSectionLen++] = 0x00;
+  newSection[newSectionLen++] = 0x33; 
+  for (int i = 0; i < 51; i++) {
+    uint8_t val = newEncBytes[i];
+    if (val <= 0x7F) {
+      newSection[newSectionLen++] = val;
+    } else {
+      newSection[newSectionLen++] = 0xCC;
+      newSection[newSectionLen++] = val;
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(blobMutex);
+    uint8_t *workBlob = capturedRustBridgeData;
+    int workLen = capturedRustBridgeLen;
+    bool usedWorkBuf = false; 
+    struct timespec _tsNow;
+    clock_gettime(CLOCK_MONOTONIC, &_tsNow);
+    uint64_t nowMs = _tsNow.tv_sec * 1000 + _tsNow.tv_nsec / 1000000;
+    if (nowMs - lastPropsReadMs >= PROPS_CACHE_MS) {
+      std::string tmpEnc, tmpSig;
+      if (readFreshPropsFromGameStore(tmpEnc, tmpSig)) {
+        cachedEncProps = std::move(tmpEnc);
+        cachedSignature = std::move(tmpSig);
+      }
+      lastPropsReadMs = nowMs;
+    }
+    if (!cachedEncProps.empty() &&
+        !cachedSignature.empty()) {
+      const std::string &freshEncProps = cachedEncProps;
+      const std::string &freshSignature = cachedSignature;
+      MsgPackStrInfo encInfo = findLargestMsgPackString(workBlob, workLen, 0);
+      MsgPackStrInfo sigInfo = findLargestMsgPackString(workBlob, workLen, 1);
+      if (encInfo.offset >= 0 && sigInfo.offset >= 0) {
+        MsgPackStrInfo *first, *second;
+        const std::string *firstNew, *secondNew;
+        if (encInfo.offset < sigInfo.offset) {
+          first = &encInfo;
+          firstNew = &freshEncProps;
+          second = &sigInfo;
+          secondNew = &freshSignature;
+        } else {
+          first = &sigInfo;
+          firstNew = &freshSignature;
+          second = &encInfo;
+          secondNew = &freshEncProps;
+        }
+        uint8_t firstHdr[5], secondHdr[5];
+        int firstHdrLen =
+            writeMsgPackStrHeader(firstHdr, (int)firstNew->size());
+        int secondHdrLen =
+            writeMsgPackStrHeader(secondHdr, (int)secondNew->size());
+        int firstOldTotal = first->headerLen + first->strLen;
+        int firstNewTotal = firstHdrLen + (int)firstNew->size();
+        int secondOldTotal = second->headerLen + second->strLen;
+        int secondNewTotal = secondHdrLen + (int)secondNew->size();
+        int newTotalBlobLen = workLen - firstOldTotal + firstNewTotal -
+                              secondOldTotal + secondNewTotal;
+        uint8_t *allocatedBlob =
+            ensureBuffer(ghostWorkBuf, ghostWorkBufCapacity, newTotalBlobLen);
+        if (allocatedBlob) {
+          usedWorkBuf = true;
+          int wp = 0;
+          memcpy(allocatedBlob + wp, workBlob, first->offset);
+          wp += first->offset;
+          memcpy(allocatedBlob + wp, firstHdr, firstHdrLen);
+          wp += firstHdrLen;
+          memcpy(allocatedBlob + wp, firstNew->data(), firstNew->size());
+          wp += (int)firstNew->size();
+          int gapStart = first->offset + firstOldTotal;
+          int gapLen = second->offset - gapStart;
+          memcpy(allocatedBlob + wp, workBlob + gapStart, gapLen);
+          wp += gapLen;
+          memcpy(allocatedBlob + wp, secondHdr, secondHdrLen);
+          wp += secondHdrLen;
+          memcpy(allocatedBlob + wp, secondNew->data(), secondNew->size());
+          wp += (int)secondNew->size();
+          int afterSecond = second->offset + secondOldTotal;
+          memcpy(allocatedBlob + wp, workBlob + afterSecond,
+                 workLen - afterSecond);
+          wp += workLen - afterSecond;
+          workBlob = allocatedBlob;
+          workLen = wp;
+          if (hasSavedCueBallPos) {
+            int searchStart =
+                first->offset + firstHdrLen + (int)firstNew->size();
+            if (searchStart > 10)
+              searchStart -= 10; 
+            for (int i = searchStart; i < wp - 12; i++) {
+              if (allocatedBlob[i] == 0x93 && allocatedBlob[i + 1] == 0x92 &&
+                  allocatedBlob[i + 2] == 0xCA &&
+                  allocatedBlob[i + 12] == 0x94) {
+                writeFloatBE(allocatedBlob + i + 3, savedCueBallX);
+                writeFloatBE(allocatedBlob + i + 8, savedCueBallY);
+                break;
+              }
+            }
+          }
+        } else {
+        }
+      } else if (encInfo.offset >= 0) {
+        int oldTotal = encInfo.headerLen + encInfo.strLen;
+        uint8_t hdr[5];
+        int hdrLen = writeMsgPackStrHeader(hdr, (int)freshEncProps.size());
+        int newTotal = hdrLen + (int)freshEncProps.size();
+        int newBlobLen = workLen - oldTotal + newTotal;
+        uint8_t *allocatedBlob =
+            ensureBuffer(ghostWorkBuf, ghostWorkBufCapacity, newBlobLen);
+        if (allocatedBlob) {
+          usedWorkBuf = true;
+          int wp = 0;
+          memcpy(allocatedBlob + wp, workBlob, encInfo.offset);
+          wp += encInfo.offset;
+          memcpy(allocatedBlob + wp, hdr, hdrLen);
+          wp += hdrLen;
+          memcpy(allocatedBlob + wp, freshEncProps.data(),
+                 freshEncProps.size());
+          wp += (int)freshEncProps.size();
+          int after = encInfo.offset + oldTotal;
+          memcpy(allocatedBlob + wp, workBlob + after, workLen - after);
+          wp += workLen - after;
+          workBlob = allocatedBlob;
+          workLen = wp;
+        }
+      }
+    } 
+    if (!blobIsFromOurShot && hasSavedCueBallPos && !usedWorkBuf) {
+      for (int i = 0; i < workLen - 12; i++) {
+        if (workBlob[i] == 0x93 && workBlob[i + 1] == 0x92 &&
+            workBlob[i + 2] == 0xCA && workBlob[i + 12] == 0x94) {
+          writeFloatBE(workBlob + i + 3, savedCueBallX);
+          writeFloatBE(workBlob + i + 8, savedCueBallY);
+          break;
+        }
+      }
+    }
+    int siOffset = -1, siEnd = -1;
+    if (usedWorkBuf) {
+      for (int i = 0; i < workLen - 3; i++) {
+        if (workBlob[i] == 0xDC && workBlob[i + 1] == 0x00 &&
+            workBlob[i + 2] == 0x33) {
+          int p = i + 3;
+          bool valid = true;
+          for (int j = 0; j < 51 && valid; j++) {
+            if (p >= workLen) {
+              valid = false;
+              break;
+            }
+            uint8_t b = workBlob[p];
+            if (b <= 0x7F)
+              p += 1;
+            else if (b == 0xCC && p + 1 < workLen)
+              p += 2;
+            else
+              valid = false;
+          }
+          if (valid) {
+            siOffset = i;
+            siEnd = p;
+            break;
+          }
+        }
+      }
+    } else {
+      siOffset = shotInfoMsgpackOffset;
+      siEnd = shotInfoSectionEnd;
+    }
+    if (siOffset < 0) {
+      return;
+    }
+    int origSectionSize = siEnd - siOffset;
+    int newTotalLen = workLen - origSectionSize + newSectionLen;
+    int ghostArrNeeded = 0x20 + newTotalLen + 16;
+    uint8_t *ghostArr =
+        ensureBuffer(ghostArrBuf, ghostArrBufCapacity, ghostArrNeeded);
+    if (!ghostArr) {
+      return;
+    }
+    memset(ghostArr, 0, 0x20);
+    *reinterpret_cast<void **>(ghostArr) = capturedRustBridgeKlass;
+    *reinterpret_cast<int *>(ghostArr + 0x18) = newTotalLen;
+    memcpy(ghostArr + 0x20, workBlob, siOffset);
+    memcpy(ghostArr + 0x20 + siOffset, newSection, newSectionLen);
+    memcpy(ghostArr + 0x20 + siOffset + newSectionLen, workBlob + siEnd,
+           workLen - siEnd);
+    void *responseByteArray = orig_RustBridgeSimulatePool(ghostArr);
+    if (responseByteArray) {
+      extractTrajectoryFromMsgPackResponse(responseByteArray);
+      if (!g_suppressGhostOverlayPush)
+        pushTrajectoryToOverlay();
+    } else {
+    }
+  } 
+}
+void extractTrajectoryFromMsgPackResponse(void *responseByteArray) {
+  if (!responseByteArray)
+    return;
+  g_hasGhostCueBallPos = false;
+  g_ghostTargetBallMoved = false;
+  auto arr = reinterpret_cast<uintptr_t>(responseByteArray);
+  int respLen = *reinterpret_cast<int *>(arr + 0x18);
+  auto *respData = reinterpret_cast<uint8_t *>(arr + 0x20);
+  if (respLen < 10) {
+    return;
+  }
+  MsgPackReader reader(respData, respLen);
+  int outerLen = reader.readArrayLen();
+  if (outerLen < 1) {
+    return;
+  }
+  int numBalls = reader.readArrayLen();
+  if (numBalls <= 0) {
+    return;
+  }
+  void *mainCamera = GetMainCamera_func ? GetMainCamera_func() : nullptr;
+  if (!mainCamera) {
+    return;
+  }
+  int screenHeight =
+      GetPixelHeight_func ? GetPixelHeight_func(mainCamera, nullptr) : 1080;
+  std::vector<float> screenCoords;
+  for (int ballIdx = 0; ballIdx < numBalls; ballIdx++) {
+    int numFrames = reader.readArrayLen();
+    if (numFrames < 2) {
+      for (int f = 0; f < numFrames; f++)
+        reader.skipElement();
+      continue;
+    }
+    std::vector<float> ballX, ballY;       
+    std::vector<double> ballXd, ballYd;   
+    ballX.reserve(numFrames);
+    ballY.reserve(numFrames);
+    if (ballIdx == kTrickShotTargetBallIdx) {
+      ballXd.reserve(numFrames);
+      ballYd.reserve(numFrames);
+    }
+    for (int f = 0; f < numFrames; f++) {
+      int coordLen = reader.readArrayLen();
+      if (coordLen >= 2) {
+        double xd = reader.readNumericAsDouble();
+        double yd = reader.readNumericAsDouble();
+        ballX.push_back((float)xd);
+        ballY.push_back((float)yd);
+        if (ballIdx == kTrickShotTargetBallIdx) {
+          ballXd.push_back(xd);
+          ballYd.push_back(yd);
+        }
+        for (int c = 2; c < coordLen; c++)
+          reader.skipElement();
+      } else {
+        for (int c = 0; c < coordLen; c++)
+          reader.skipElement();
+      }
+    }
+    if (ballX.size() < 2)
+      continue;
+    float lastX = ballX.back();
+    float lastY = ballY.back();
+    float dx = ballX.back() - ballX[0];
+    float dy = ballY.back() - ballY[0];
+    float distSq = dx * dx + dy * dy;
+    if (ballIdx == kTrickShotTargetBallIdx) {
+      g_lastGhostCueBallX = ballXd.size() >= 2 ? ballXd.back() : (double)lastX;
+      g_lastGhostCueBallY = ballYd.size() >= 2 ? ballYd.back() : (double)lastY;
+      g_hasGhostCueBallPos = true;
+      g_ghostTargetBallMoved = distSq >= 0.0001f;
+    }
+    if (distSq < 0.0001f)
+      continue;
+    screenCoords.push_back(BALL_MARKER);
+    screenCoords.push_back(static_cast<float>(ballIdx));
+    Vector3 centerWorld = {lastX, savedTableWorldY, lastY};
+    Vector3 edgeWorld = {lastX + BALL_WORLD_RADIUS, savedTableWorldY, lastY};
+    Vector3 centerScreen =
+        WorldToScreenPoint_func(mainCamera, centerWorld, nullptr);
+    Vector3 edgeScreen =
+        WorldToScreenPoint_func(mainCamera, edgeWorld, nullptr);
+    float screenRadius = std::abs(edgeScreen.x - centerScreen.x);
+    if (screenRadius < 3.0f)
+      screenRadius = 3.0f;
+    screenCoords.push_back(screenRadius);
+    size_t totalFrames = ballX.size();
+    size_t sampleInterval = totalFrames > 100 ? totalFrames / 50 : 2;
+    if (sampleInterval < 1)
+      sampleInterval = 1;
+    for (size_t i = 0; i < totalFrames; i += sampleInterval) {
+      Vector3 worldPos = {ballX[i], savedTableWorldY, ballY[i]};
+      Vector3 screenPos =
+          WorldToScreenPoint_func(mainCamera, worldPos, nullptr);
+      float androidY = static_cast<float>(screenHeight) - screenPos.y;
+      screenCoords.push_back(screenPos.x);
+      screenCoords.push_back(androidY);
+    }
+    {
+      Vector3 worldPos = {lastX, savedTableWorldY, lastY};
+      Vector3 screenPos =
+          WorldToScreenPoint_func(mainCamera, worldPos, nullptr);
+      float androidY = static_cast<float>(screenHeight) - screenPos.y;
+      screenCoords.push_back(screenPos.x);
+      screenCoords.push_back(androidY);
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(trajectoryMutex);
+    cachedTrajectoryScreenCoords = std::move(screenCoords);
+    hasNewTrajectory = true;
+  }
+}
+static void extractShootItTrajectory(void *responseByteArray, uint32_t myPlayerIdx, uint32_t puckId) {
+  if (!responseByteArray) return;
+  auto arr = reinterpret_cast<uintptr_t>(responseByteArray);
+  int respLen = *reinterpret_cast<int *>(arr + 0x18);
+  auto *respData = reinterpret_cast<uint8_t *>(arr + 0x20);
+  if (respLen < 10) return;
+  MsgPackReader reader(respData, respLen);
+  int outerLen = reader.readArrayLen();
+  if (outerLen < 4) return;
+  for (int i = 0; i < 3; i++) reader.skipElement();
+  int numObjects = reader.readArrayLen();
+  if (numObjects <= 0) return;
+  void *mainCamera = GetMainCamera_func ? GetMainCamera_func() : nullptr;
+  if (!mainCamera) return;
+  int screenHeight =
+      GetPixelHeight_func ? GetPixelHeight_func(mainCamera, nullptr) : 1080;
+  std::vector<float> screenCoords;
+  for (int objIdx = 0; objIdx < numObjects; objIdx++) {
+    int objArrLen = reader.readArrayLen();
+    if (objArrLen < 2) {
+      reader.skipElement();
+      continue;
+    }
+    int objectId = (int)reader.readNumericAsFloat();
+    int numFrames = reader.readArrayLen();
+    if (numFrames < 2) {
+      for (int f = 0; f < numFrames; f++) reader.skipElement();
+      for (int e = 2; e < objArrLen; e++) reader.skipElement();
+      continue;
+    }
+    std::vector<float> posX, posY;
+    posX.reserve(numFrames);
+    posY.reserve(numFrames);
+    for (int f = 0; f < numFrames; f++) {
+      int frameArrLen = reader.readArrayLen();
+      if (frameArrLen < 2) {
+        for (int e = 0; e < frameArrLen; e++) reader.skipElement();
+        continue;
+      }
+      reader.skipElement();
+      int posArrLen = reader.readArrayLen();
+      if (posArrLen >= 2) {
+        float x = reader.readNumericAsFloat();
+        float y = reader.readNumericAsFloat();
+        posX.push_back(x);
+        posY.push_back(y - g_shootitDynamicYOffset);
+        for (int c = 2; c < posArrLen; c++) reader.skipElement();
+      } else {
+        for (int c = 0; c < posArrLen; c++) reader.skipElement();
+      }
+      for (int e = 2; e < frameArrLen; e++) reader.skipElement();
+    }
+    for (int e = 2; e < objArrLen; e++) reader.skipElement();
+    if (posX.size() < 2) continue;
+    float dx = posX.back() - posX[0];
+    float dy = posY.back() - posY[0];
+    if (dx * dx + dy * dy < 0.0001f) continue;
+    int siColorIdx;
+    if (objectId == 0)                siColorIdx = 200; 
+    else if (objectId == (int)puckId) siColorIdx = 201; 
+    else                              siColorIdx = 202; 
+    screenCoords.push_back(BALL_MARKER);
+    screenCoords.push_back(static_cast<float>(siColorIdx));
+    float lastX = posX.back(), lastY = posY.back();
+    float worldRadius = (objectId == 0) ? g_shootitBallRadius : g_shootitPuckRadius;
+    Vector3 centerWorld = {lastX, lastY, 0};
+    Vector3 edgeWorld = {lastX + worldRadius, lastY, 0};
+    Vector3 centerScreen =
+        WorldToScreenPoint_func(mainCamera, centerWorld, nullptr);
+    Vector3 edgeScreen =
+        WorldToScreenPoint_func(mainCamera, edgeWorld, nullptr);
+    float screenRadius = std::abs(edgeScreen.x - centerScreen.x);
+    if (screenRadius < 3.0f) screenRadius = 3.0f;
+    screenCoords.push_back(screenRadius);
+    size_t totalFrames = posX.size();
+    size_t sampleInterval = totalFrames > 100 ? totalFrames / 50 : 2;
+    if (sampleInterval < 1) sampleInterval = 1;
+    for (size_t i = 0; i < totalFrames; i += sampleInterval) {
+      Vector3 worldPos = {posX[i], posY[i], 0};
+      Vector3 screenPos =
+          WorldToScreenPoint_func(mainCamera, worldPos, nullptr);
+      float androidY = static_cast<float>(screenHeight) - screenPos.y;
+      screenCoords.push_back(screenPos.x);
+      screenCoords.push_back(androidY);
+    }
+    {
+      Vector3 worldPos = {lastX, lastY, 0};
+      Vector3 screenPos =
+          WorldToScreenPoint_func(mainCamera, worldPos, nullptr);
+      float androidY = static_cast<float>(screenHeight) - screenPos.y;
+      screenCoords.push_back(screenPos.x);
+      screenCoords.push_back(androidY);
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(trajectoryMutex);
+    cachedTrajectoryScreenCoords = std::move(screenCoords);
+    hasNewTrajectory = true;
+  }
+}
+PoolSimulationResponse *my_PoolSimulate(void *simulationRequest,
+                                        void *methodInfo) {
+  if (simulationRequest && lastCapturedShotInfo.valid && localShotPending) {
+    localShotPending = false; 
+    localShotJustFired = true;
+    g_waitingToClearLines = true;
+    g_clearGSCountAfterLocalShot = 0;
+    auto req = reinterpret_cast<uintptr_t>(simulationRequest);
+    auto listPtr = *reinterpret_cast<uintptr_t *>(req + 0x20);
+    if (listPtr) {
+      auto itemsArray = *reinterpret_cast<uintptr_t *>(listPtr + 0x10);
+      auto size = *reinterpret_cast<int *>(listPtr + 0x18);
+      if (itemsArray && size == 51) {
+        auto *dataPtr = reinterpret_cast<uint8_t *>(itemsArray + 0x20);
+        deriveGhostKeystream(dataPtr);
+        if (!ghostReqNative) {
+          ghostReqNative = (uint8_t *)malloc(GHOST_REQ_ALLOC_SIZE);
+          ghostListNative = (uint8_t *)malloc(GHOST_LIST_ALLOC_SIZE);
+          ghostArrayNative = (uint8_t *)malloc(GHOST_ARRAY_ALLOC_SIZE);
+        }
+        memset(ghostReqNative, 0, GHOST_REQ_ALLOC_SIZE);
+        memset(ghostListNative, 0, GHOST_LIST_ALLOC_SIZE);
+        memset(ghostArrayNative, 0, GHOST_ARRAY_ALLOC_SIZE);
+        memcpy(ghostReqNative, (void *)req, GHOST_REQ_ALLOC_SIZE);
+        memcpy(ghostListNative, (void *)listPtr, GHOST_LIST_ALLOC_SIZE);
+        memcpy(ghostArrayNative, (void *)itemsArray, GHOST_ARRAY_ALLOC_SIZE);
+        *reinterpret_cast<uintptr_t *>(ghostReqNative + 0x20) =
+            (uintptr_t)ghostListNative;
+        *reinterpret_cast<uintptr_t *>(ghostListNative + 0x10) =
+            (uintptr_t)ghostArrayNative;
+        ghostReqPtr = ghostReqNative;
+        ghostItemsDataPtr = ghostArrayNative + 0x20;
+        keystreamJustDerived = true;
+      }
+    }
+  }
+  lastPower = -1.0f;
+  resetCachedSpinState(false);
+  PoolSimulationResponse *response = nullptr;
+  if (orig_PoolSimulate) {
+    response = orig_PoolSimulate(simulationRequest, methodInfo);
+  }
+  if (response != nullptr) {
+    if (localShotJustFired) {
+      if (g_predictionLinesEnabled) {
+        extractTrajectoryFromResponse(response);
+        pushTrajectoryToOverlay();
+      }
+    }
+    localShotJustFired = false; 
+    if (powerTextView) {
+      withJNIEnv([&](JNIEnv *env) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), decryptStr(ENC_FMT_POWER, sizeof(ENC_FMT_POWER)).c_str(), lastPower);
+        updateTextView(env, powerTextView, msg);
+      });
+    }
+  } else {
+  }
+  return response;
+}
+static const time_t KEY_EPOCH = 1704067200; 
+static const uint8_t ENC_SALT[] = {
+    0x5A, 0xEB, 0x3C, 0x42, 0xF6, 0x42, 0x82, 0x83, 0x8F, 0x3D,
+    0xB8, 0xB1, 0xDF, 0x96
+};
+static const uint8_t ENC_BASE36[] = {
+    0xED, 0xB9, 0xE1, 0x5C, 0xBB, 0xF9, 0x9A, 0x6C, 0x4F, 0xED,
+    0x14, 0x47, 0x45, 0x01, 0x19, 0x0C, 0x02, 0x87, 0x74, 0x62,
+    0x3A, 0x4F, 0x1A, 0x85, 0x32, 0xDA, 0x49, 0x8B, 0x3B, 0x6E,
+    0xA6, 0x88, 0x4E, 0xFA, 0x0E, 0xCE
+};
+static const uint8_t ENC_PREFS[] = {
+    0x3D, 0x8B, 0x8B, 0x5A, 0x56, 0x0A, 0x1C, 0xEA
+};
+static const uint8_t ENC_KEY_LT[] = {0x0B, 0x83};
+static const uint8_t ENC_KEY_LK[] = {0x0B, 0x4B};
+static const uint8_t ENC_ANDROID_ID[] = {
+    0x94, 0x53, 0x54, 0x42, 0xD5, 0x5A, 0x6C, 0xAA, 0xF5, 0x73
+};
+static const uint8_t ENC_TITLE[] = {
+    0x5A, 0x3C, 0xDA, 0xEC, 0xB6, 0x7B, 0xBF, 0x24, 0x07, 0x94,
+    0xF4, 0x96, 0x25
+};
+static const uint8_t ENC_TITLE2[] = {
+    0x5A, 0x3B, 0xDB, 0xEB, 0xB5, 0x7A, 0xBC, 0x24, 0x07, 0x94,
+    0xF4, 0x96, 0x25
+};
+static const uint8_t ENC_WAIT[] = {
+    0xE2, 0x3B, 0x0C, 0x32, 0x1C, 0x78, 0x6C, 0x24, 0x85, 0x4B,
+    0x25, 0xFF, 0x3C, 0x00, 0x6A
+};
+static const uint8_t ENC_EMPTY[] = {
+    0xEA, 0x43, 0x2C, 0xEB, 0x75, 0x7A, 0x0A, 0x1A, 0x3E, 0xF3,
+    0xF5, 0xC7, 0xAE, 0x18, 0xE0, 0x92, 0x33, 0x1D
+};
+static const uint8_t ENC_EXPIRED[] = {
+    0x42, 0x1B, 0x8B, 0xD5, 0x26, 0xC3, 0x8C, 0x7A, 0x9D, 0x4B,
+    0x0D
+};
+static const uint8_t ENC_CLOCK[] = {
+    0x83, 0x43, 0x1C, 0xDB, 0xB5, 0x00, 0xEC, 0x3A, 0xD5, 0xD3,
+    0xF5, 0xC7, 0x14, 0xD0, 0x0A, 0x39, 0x0B, 0xFE, 0xAD, 0x2D,
+    0xFB, 0x8E, 0x5B, 0xF6
+};
+static const uint8_t ENC_INVALID[] = {
+    0x52, 0x53, 0xC3, 0xEB, 0xFD, 0x5A, 0x6C, 0x24, 0xC5, 0x4B,
+    0x55
+};
+static const uint8_t ENC_WELCOME[] = {
+    0xE2, 0x1B, 0x14, 0xDB, 0xD5, 0xBA, 0x74, 0x24, 0x1E, 0x2B,
+    0x25, 0x18, 0x56
+};
+static const uint8_t ENC_ACTIVATING[] = {0x93,0x0B,0xD3,0xAB,0xAD,0x1A,0xEC,0x7A,0x3E,0x7B,0xDF,0xE1,0x3E,0x66,0x62,0xDA,0x33,0xDE,0xA5,0x2D,0xF5,0x86,0xBB,0xAE,0xFB};
+static const uint8_t ENC_DECOY_SALT[] = {0x4A,0x89,0x7C,0x54,0x45,0x4B,0x82,0xFB,0xA6,0xC5,0xA8,0xC1,0xFF};
+static const uint8_t ENC_EXPIRED2[] = {
+    0xD2, 0xAB, 0xAB, 0x42, 0x1C, 0x4A, 0x74, 0xFB, 0x08, 0x93,
+    0x15, 0xDF, 0xAE, 0x38, 0xA3, 0xBA, 0x53, 0x35, 0x15, 0xD2
+};
+static const uint8_t ENC_POWER[] = {
+    0xEA, 0xAB, 0xDB, 0xCB, 0x8D, 0xF1, 0x0A, 0x5C, 0xD7, 0x8D
+};
+static const uint8_t ENC_SPIN[] = {0x02, 0xA3, 0x0C, 0x62}; 
+static const uint8_t ENC_DIR[] = {
+    0x4A, 0x7B, 0xE3, 0x04, 0x1C, 0xB8, 0x32, 0x5C
+};
+static const uint8_t ENC_OPACITY[] = {
+    0x22, 0xA3, 0x4C, 0xDB, 0xC5, 0xE3, 0x55, 0xF5, 0x08, 0xFD,
+    0x77, 0x2A
+};
+static const uint8_t ENC_DEVICE[] = {
+    0x4A, 0x1B, 0xC3, 0xAB, 0xF5, 0x7A, 0x7B, 0x24
+};
+static const uint8_t ENC_XXXX[] = {0xAA, 0xE4, 0xB2, 0x13};
+static const uint8_t ENC_LOGIN[] = {0x0A, 0xAC, 0x5B, 0xAC, 0xEE};
+static const uint8_t ENC_CREDITS_BY[]     = {0x33,0x3B,0x54,0xCB,0x1C,0x32,0x55,0x24,0x0F,0xF3,0x75,0xC7,0xDD,0x38,0x83,0x60,0xB0}; 
+static const uint8_t ENC_CREDITS_YT[]     = {0xD2,0xAC,0xAA,0x33,0xA6,0x33,0x77}; 
+static const uint8_t ENC_CREDITS_TG[]     = {0xCA,0x1C,0x13,0xCC,0x17,0xB0,0x17,0x59}; 
+static const uint8_t ENC_CREDITS_YT_URL[] = {0x2B,0x83,0xD3,0x52,0x75,0xF1,0x22,0x2C,0xE5,0xFB,0x86,0xE1,0x95,0xC8,0x9B,0x9A,0xB2,0xB6,0x15,0x03,0xFB,0x46,0x1B,0x98,0x9B,0xFB,0x68,0x8A,0x24,0x96,0xBF,0x81,0x5B}; 
+static const uint8_t ENC_CREDITS_TG_URL[] = {0x2B,0x83,0xD3,0x52,0x75,0xF1,0x22,0x2C,0xED,0xA5,0xB5,0x28,0x26,0xF0,0x1A,0x23,0x4B,0x2E,0xAD,0xAD,0x43,0x7D,0x5B,0x76,0xC1,0xE1}; 
+static const uint8_t ENC_DASH[] = {0x98, 0x26, 0xD4};
+static const uint8_t ENC_PLUS[] = {0x45};
+static const uint8_t ENC_COPIED[] = {0x83, 0xAB, 0xF3, 0xAB, 0x26, 0x62, 0x12};
+static const uint8_t ENC_PRED_LINES[] = {0xEA, 0xB3, 0x2C, 0xB3, 0xC5, 0x0A, 0xEC, 0x7A, 0x26, 0xA3, 0x2F, 0xD6, 0x14, 0xD0, 0x1A, 0x52};
+static const uint8_t ENC_PREVIEW_LINES[] = {0xEA, 0xB3, 0x2C, 0x22, 0xC5, 0x7A, 0xE4, 0x24, 0x2F, 0x6B, 0xDD, 0x28, 0xC5};
+static const uint8_t ENC_PREVIEW_POWER[] = {0xEA, 0xB3, 0x2C, 0x22, 0xC5, 0x7A, 0xE4, 0x24, 0x8E, 0xBB, 0x86, 0x28, 0xDD, 0xB6, 0xE0, 0x80, 0x68, 0xFC};
+static const uint8_t ENC_SHOOTIT_LINES[] = {0x02, 0x63, 0x1C, 0x7A, 0xBD, 0x5B, 0xEC, 0x24, 0x2F, 0x6B, 0xDD, 0x28, 0xC5}; 
+static const uint8_t ENC_TRANSPARENCY[] = {0xCA, 0xB3, 0x4C, 0x62, 0x75, 0x83, 0x14, 0xB3, 0x16, 0xA3, 0x25, 0x8F, 0x9F, 0x66, 0x89, 0x80, 0x31};
+static const uint8_t ENC_SEP_SHOOTIT[] = {0x02,0x63,0x1C,0x7A,0xBD,0x00,0xD7,0x83}; 
+static const uint8_t ENC_EXTENDED_LINES[] = {0x72,0xE3,0xD3,0xCB,0xED,0x62,0x74,0x02,0x08,0xB4,0xD5,0xE7,0x74,0xE8}; 
+static const uint8_t ENC_CONTINUE_FREE[] = {0x83,0xAC,0x03,0x33,0xC6,0x53,0xF7,0x19,0x08,0xFC,0xD4,0x96,0x6D,0xC9,0x9A,0x9B,0xE8,0xDF,0x24,0x3A,0x1A,0xB7,0x12,0x75}; 
+static const uint8_t ENC_FREE_NOTE[] = {0x7A,0xB3,0x2C,0xCB,0x1C,0x93,0x74,0xB3,0x85,0x6B,0xC5,0xE7,0xAE,0xB8,0x6A,0x03,0x62,0xC4,0x3D,0x0D,0x7B,0x56,0x8B,0x11,0x3B,0x83,0x20,0x42,0x3C,0xC8,0x77,0x4E,0x06,0xE3,0xA2,0x3E,0x5A,0x36,0x41,0xC9,0x47,0x4A,0xB8,0x3C,0xD0,0x00,0x78,0x34,0x72,0x0B,0x4E,0xBE,0x64,0xCA,0x16,0x19,0xB3,0xE3,0x87,0x6E,0x6E,0x1F,0x7E,0xDD,0xDB,0x8A,0x6A}; 
+static const uint8_t ENC_REMOTE_CFG_URL[] = {0x2B,0x83,0xD3,0x52,0x75,0xF1,0x22,0x2C,0x8D,0x2B,0xA6,0x97,0x74,0x70,0x3A,0xCA,0x59,0xCE,0x45,0x6D,0x1D,0x7D,0xBB,0x5E,0x31,0xCB,0x78,0x0B,0x3E,0x4E,0x1F,0x06,0x5E};
+static const uint8_t ENC_RC_POOL[] = {0xEB,0xAB,0x1C,0x72,0x63};         
+static const uint8_t ENC_RC_SHOOTIT[] = {0x03,0x63,0x1C,0x7A,0xBD,0x5A,0xEC,0xDD}; 
+static const uint8_t ENC_RC_ENABLED[] = {0x73,0x53,0x4C,0xC3,0xFD,0x7A,0x6C};     
+static const uint8_t ENC_RC_DISABLED[] = {0x4B,0x7B,0xFB,0xEB,0x0E,0xA2,0x74,0x02}; 
+static const uint8_t ENC_RC_POOL_DENIED[] = {0xEA,0xAB,0x1C,0x72,0x1C,0x83,0xBC,0x1A,0x6E,0x6B,0x25,0x97,0x14,0xC8,0x72,0x39,0x53,0x4D,0x4F,0xD2,0x2B,0x65,0xBB,0xE6,0x3B,0x63,0x91,0x18,0x84,0xC6,0xAF,0xD8,0x7D,0x73,0x69,0x8D,0x69,0xD5,0xE9,0xA1,0x49,0x72,0xD8,0xA3};
+static const uint8_t ENC_RC_SHOOTIT_DENIED[] = {0x02,0x63,0x1C,0x7A,0xBD,0x5B,0xEC,0x24,0x8D,0xC3,0xF5,0x10,0x14,0x68,0x83,0xE2,0x43,0x96,0x4F,0x4D,0x7B,0xEC,0x43,0xAE,0x13,0x43,0xC1,0xBD,0x6B,0xEE,0x5D,0x0E,0x0E,0xAB,0xD2,0xE5,0x83,0x36,0x50,0xAB,0x59,0xC2,0x20,0x6C,0x29,0xE8,0x11};
+static const uint8_t ENC_IL2CPP_SO[] = {0x0B,0x7B,0x64,0xAB,0xFD,0xB1,0x04,0xA3,0x8D,0xA5,0xA6,0xFF}; 
+static const uint8_t ENC_FMT_PREVPOW[] = {0xEA,0xB3,0x2C,0x22,0xC5,0x7A,0xE4,0x24,0x8E,0xBB,0x86,0x28,0xDD,0xB6,0xE0}; 
+#ifdef ADVANCED_CONTROLS
+static void syncPowerAutoAimUI() {
+  if (!javaVM) return;
+  JNIEnv *env = nullptr;
+  bool attached = false;
+  if (javaVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+    if (javaVM->AttachCurrentThread(&env, nullptr) == JNI_OK)
+      attached = true;
+    else return;
+  }
+  if (previewPowerTextView && env) {
+    char msg[64];
+    std::string pFmt = decryptStr(ENC_FMT_PREVPOW, sizeof(ENC_FMT_PREVPOW)) + "%.2f%%";
+    snprintf(msg, sizeof(msg), pFmt.c_str(), (double)previewPowerPct);
+    updateTextView(env, previewPowerTextView, msg);
+  }
+  if (g_previewPowerSeekBar && env) {
+    jclass seekBarClass = env->FindClass("android/widget/SeekBar");
+    if (seekBarClass) {
+      jmethodID setProg = env->GetMethodID(seekBarClass, "setProgress", "(I)V");
+      if (setProg)
+        env->CallVoidMethod(g_previewPowerSeekBar, setProg, (jint)(previewPowerPct * 10.0f));
+      env->DeleteLocalRef(seekBarClass);
+    }
+  }
+  if (attached) javaVM->DetachCurrentThread();
+}
+#endif
+static const uint8_t ENC_FMT_TRANSP[] = {0xCA,0xB3,0x4C,0x62,0x75,0x83,0x14,0xB3,0x16,0xA3,0x25,0x8F,0x9F,0x66}; 
+static const uint8_t ENC_FMT_EXPIRES[] = {0x72,0xE3,0xF3,0xAB,0x8D,0x7A,0x84,0x24,0xF5,0xA3,0x7F,0x32}; 
+static const uint8_t ENC_SEP_POOL[] = {0xEA,0xAB,0x1C,0x72}; 
+static const uint8_t ENC_ACCT_LABEL[] = {0x93,0x0B,0x7C,0x7A,0xA5,0x52,0xEC,0xF5,0x08};
+static const uint8_t ENC_FREE[] = {0x7A,0xB3,0x2C,0xCB};
+static const uint8_t ENC_PAID[] = {0xEA,0x3B,0x0C,0xB3};
+static const uint8_t ENC_DESC_FREE[] = {0x72,0xE3,0xD3,0xCB,0xED,0x62,0x74,0x02,0x08,0xB4,0xD5,0xE7,0x74,0xE8,0xE0,0xF2,0x5B,0xA6,0xF5};
+static const uint8_t ENC_DESC_PAID[] = {0x93,0x43,0x14,0xD5,0x2E,0x7A,0x14,0x83,0x95,0xC3,0xF5,0xDF,0xAE,0x18,0xB3,0x23,0x53,0xA6,0x35,0x25,0x13,0x36};
+static const uint8_t ENC_LINE_COLOR[] = {0x0A,0x7B,0x04,0xCB,0x1C,0x0B,0x24,0x42,0x26,0xC3};
+static const uint8_t ENC_SEP_EXTRA[] = {0x72,0xE3,0xD3,0x42,0x06}; 
+static const uint8_t ENC_FMT_DATEFMT[] = {0x75,0x19,0x8A,0x8D,0x24,0x78,0x34,0x5C,0x10,0x4D,0x0D,0x32,0x76,0x3E,0x21,0x68,0x31,0xFC,0x54,0x33,0x4A,0x8F,0x8A}; 
+static const uint8_t ENC_S_FRIDA[] = {0x7B, 0xB3, 0x0C, 0xB3, 0x06};
+static const uint8_t ENC_S_GADGET[] = {0x63, 0x3B, 0x54, 0xBB, 0x26, 0xE3};
+static const uint8_t ENC_S_LINJECTOR[] = {0x0B, 0x7B, 0x04, 0x83, 0x26, 0x0A, 0xEC, 0x2A, 0x9D};
+static const uint8_t ENC_S_GMAIN[] = {0x63, 0x5B, 0x4C, 0xAB, 0xED};
+static const uint8_t ENC_S_GDBUS[] = {0x63, 0x03, 0x64, 0x4A, 0x75};
+static const uint8_t ENC_S_GUMJS[] = {0x63, 0x9B, 0xEB, 0x8D, 0xCD, 0x8B};
+static const uint8_t ENC_NTP_IP1[] = {0x1D,0xB9,0xC1,0x64,0x8B,0x89,0x53,0x54,0x87,0xCD,0xDF,0xB1}; 
+static const uint8_t ENC_NTP_IP2[] = {0x15,0x91,0xE1,0x64,0x83,0xF9,0x53,0x54,0x9F,0xD5,0xA8,0xE1,0xD7}; 
+static const uint8_t ENC_S_SU_PATH[] = {0x25,0x8B,0x8B,0x5A,0xBD,0x7A,0x34,0x2C,0x1E,0x6B,0xDD,0xF9,0xC5,0xB8}; 
+static const uint8_t ENC_S_SU_XBIN[] = {0x25,0x8B,0x8B,0x5A,0xBD,0x7A,0x34,0x2C,0x4D,0x43,0xD5,0xE7,0x26,0xE8,0x9B}; 
+static const uint8_t ENC_S_MAGISK_PATH[] = {0x25,0x8B,0x64,0xAB,0xED,0xA8,0x34,0x3A,0x66,0x6B,0xA6,0x18}; 
+static const uint8_t ENC_S_MAGISK_DATA[] = {0x25,0x03,0x4C,0x32,0x06,0xA8,0x14,0x02,0x1E,0xBD,0xB5,0x48,0x64,0xD8,0x6A,0x92}; 
+static const uint8_t ENC_S_SUPERSU[] = {0x25,0x8B,0x8B,0x5A,0xBD,0x7A,0x34,0x2C,0x36,0xD3,0xAE,0xF9,0xC2,0xB8,0x62,0x03,0x7A,0x7D,0xA5,0x2D,0x43,0x5C,0xBB,0x96,0x53}; 
+static const uint8_t ENC_S_BUSYBOX[] = {0x25,0x8B,0x8B,0x5A,0xBD,0x7A,0x34,0x2C,0x4D,0x43,0xD5,0xE7,0x26,0x70,0x9B,0x52,0xD2,0xB6,0x45,0xF5}; 
+static const uint8_t ENC_S_SU_SBIN[] = {0x25,0x8B,0x64,0xAB,0xED,0xA8,0x84,0x9B}; 
+static const uint8_t ENC_S_MAGISK_TMP[] = {0x25,0x03,0x2C,0x22,0xD3,0x50,0x34,0x3A,0x66,0x6B,0xA6,0x18}; 
+static const uint8_t ENC_S_MOUNT_PATH[] = {0x25,0xA3,0xE3,0x7A,0xF5,0xA8,0x84,0x1A,0x2E,0x63,0xC7,0xEF,0x24,0xB8,0x72,0x9A,0x62}; 
+static const uint8_t ENC_S_MAGISK_MOUNT[] = {0x33,0x3B,0x5C,0xAB,0x75,0x4A}; 
+static const uint8_t ENC_S_KERNSU[] = {0x25,0x03,0x4C,0x32,0x06,0xA8,0x14,0x02,0x1E,0xBD,0xE5,0xDF,0xF5,0x00}; 
+static const uint8_t ENC_S_APATCH[] = {0x25,0x03,0x4C,0x32,0x06,0xA8,0x14,0x02,0x1E,0xBD,0x15,0xB7}; 
+static std::string decryptStr(const uint8_t *data, int len) {
+#if defined(__aarch64__)
+  static uint8_t K1[] = {0x48,0x9B,0x77,0x05,0x2F,0x56,0x50,0xC3,0xED,0x25,0x27};
+  static uint8_t K2_p1[] = {0x01, 0xAC};
+  static uint8_t K2_p2[] = {0xFF, 0x48, 0x99};
+  static uint8_t K2_p3[] = {0x52, 0x4E};
+  static uint8_t K2[7];
+  static bool keys_restored = false;
+  if (!keys_restored) {
+    uint32_t pd = computePrologueDigest();
+    const uint8_t *pdb = reinterpret_cast<const uint8_t *>(&pd);
+    for (int i = 0; i < 11; i++) K1[i] ^= pdb[i % 4];
+    K2[0] = K2_p1[0]; K2[1] = K2_p1[1];
+    K2[2] = K2_p2[0]; K2[3] = K2_p2[1]; K2[4] = K2_p2[2];
+    K2[5] = K2_p3[0]; K2[6] = K2_p3[1];
+    for (int i = 0; i < 7; i++) K2[i] ^= pdb[(i + 2) % 4];
+    keys_restored = true;
+  }
+#else
+  static const uint8_t K1[] = {0xA3, 0x5F, 0x1D, 0x7E, 0xC4, 0x92,
+                               0x3A, 0xB8, 0x06, 0xE1, 0x4D};
+  static const uint8_t K2_p1[] = {0x6B, 0xD7};
+  static const uint8_t K2_p2[] = {0x14, 0x8C, 0xF3};
+  static const uint8_t K2_p3[] = {0x29, 0xA5};
+  static const uint8_t K2[7] = {K2_p1[0], K2_p1[1],
+                                K2_p2[0], K2_p2[1], K2_p2[2],
+                                K2_p3[0], K2_p3[1]};
+#endif
+  std::string out(len, '\0');
+  for (int i = 0; i < len; i++) {
+    uint8_t x = data[i];
+    x ^= K2[i % 7];                                          
+    x = (uint8_t)((x >> 3) | (x << 5));                      
+    x = (uint8_t)(x - ((i * i * 7 + i * 0x1B + 0x3D) & 0xFF));  
+    x ^= K1[i % 11];                                         
+    out[i] = (char)x;
+  }
+  return out;
+}
+#ifdef ADVANCED_CONTROLS
+static void loadSavedShots() {
+  std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+  g_savedShots.clear();
+  if (g_savedShotsPath.empty()) return;
+  FILE *f = fopen(g_savedShotsPath.c_str(), "r");
+  if (!f) return;
+  char line[128];
+  while (fgets(line, sizeof(line), f)) {
+    float d0, d1, pwr;
+    if (sscanf(line, "%f,%f,%f", &d0, &d1, &pwr) == 3) {
+      g_savedShots.push_back({d0, d1, pwr});
+    }
+  }
+  fclose(f);
+}
+static void saveShotsToFile() {
+  if (g_savedShotsPath.empty()) return;
+  FILE *f = fopen(g_savedShotsPath.c_str(), "w");
+  if (!f) return;
+  std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+  for (const auto &s : g_savedShots) {
+    fprintf(f, "%.10f,%.10f,%.6f\n", (double)s.dir0, (double)s.dir1, (double)s.power);
+  }
+  fclose(f);
+}
+static void deleteSavedShot(int index) {
+  {
+    std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+    if (index < 0 || index >= (int)g_savedShots.size()) return;
+    g_savedShots.erase(g_savedShots.begin() + index);
+  }
+  saveShotsToFile();
+}
+static void appendSavedShot(float dir0, float dir1, float power) {
+  {
+    std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+    if ((int)g_savedShots.size() >= 250) return; 
+    g_savedShots.push_back({dir0, dir1, power});
+  }
+  saveShotsToFile();
+}
+static void initSavedShotsPath(JNIEnv *env) {
+  if (!g_activity) return;
+  jclass ctxClass = env->FindClass("android/content/Context");
+  jmethodID getFilesDir = env->GetMethodID(ctxClass, "getFilesDir", "()Ljava/io/File;");
+  jobject filesDir = env->CallObjectMethod(g_activity, getFilesDir);
+  if (!filesDir) { env->DeleteLocalRef(ctxClass); return; }
+  jclass fileClass = env->FindClass("java/io/File");
+  jmethodID getAbsPath = env->GetMethodID(fileClass, "getAbsolutePath", "()Ljava/lang/String;");
+  jstring pathStr = (jstring)env->CallObjectMethod(filesDir, getAbsPath);
+  const char *path = env->GetStringUTFChars(pathStr, nullptr);
+  std::string fileName = decryptStr(ENC_SMART_SHOTS_FILE, sizeof(ENC_SMART_SHOTS_FILE));
+  g_savedShotsPath = std::string(path) + "/" + fileName;
+  env->ReleaseStringUTFChars(pathStr, path);
+  env->DeleteLocalRef(pathStr);
+  env->DeleteLocalRef(filesDir);
+  env->DeleteLocalRef(fileClass);
+  env->DeleteLocalRef(ctxClass);
+  loadSavedShots();
+}
+static std::string trimSavedShotText(const std::string &s) {
+  size_t start = 0;
+  while (start < s.size() &&
+         (s[start] == ' ' || s[start] == '\t' || s[start] == '\r' ||
+          s[start] == '\n')) {
+    start++;
+  }
+  size_t end = s.size();
+  while (end > start &&
+         (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r' ||
+          s[end - 1] == '\n')) {
+    end--;
+  }
+  return s.substr(start, end - start);
+}
+static std::string formatSavedShotCsvLine(float dir0, float dir1, float power) {
+  char line[96];
+  snprintf(line, sizeof(line), "%.10f,%.10f,%.6f", (double)dir0, (double)dir1,
+           (double)power);
+  return std::string(line);
+}
+static std::string exportSavedShotsCsv() {
+  std::string out;
+  std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+  for (size_t i = 0; i < g_savedShots.size(); i++) {
+    if (!out.empty()) out += "\n";
+    out += formatSavedShotCsvLine(g_savedShots[i].dir0, g_savedShots[i].dir1,
+                                  g_savedShots[i].power);
+  }
+  return out;
+}
+static bool setClipboardText(JNIEnv *env, const char *label,
+                             const std::string &text) {
+  if (!env || !g_activity) return false;
+  jclass ctxClass = env->FindClass("android/content/Context");
+  if (!ctxClass) return false;
+  jmethodID getSysService = env->GetMethodID(
+      ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+  if (!getSysService) {
+    env->DeleteLocalRef(ctxClass);
+    return false;
+  }
+  jstring clipSvc = env->NewStringUTF("clipboard");
+  jobject cm = env->CallObjectMethod(g_activity, getSysService, clipSvc);
+  env->DeleteLocalRef(clipSvc);
+  if (!cm) {
+    env->DeleteLocalRef(ctxClass);
+    return false;
+  }
+  jclass clipDataClass = env->FindClass("android/content/ClipData");
+  jclass cmClass = env->FindClass("android/content/ClipboardManager");
+  if (!clipDataClass || !cmClass) {
+    if (clipDataClass) env->DeleteLocalRef(clipDataClass);
+    if (cmClass) env->DeleteLocalRef(cmClass);
+    env->DeleteLocalRef(cm);
+    env->DeleteLocalRef(ctxClass);
+    return false;
+  }
+  jmethodID newPlain = env->GetStaticMethodID(
+      clipDataClass, "newPlainText",
+      "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;");
+  jmethodID setPrimary = env->GetMethodID(
+      cmClass, "setPrimaryClip", "(Landroid/content/ClipData;)V");
+  if (!newPlain || !setPrimary) {
+    env->DeleteLocalRef(clipDataClass);
+    env->DeleteLocalRef(cmClass);
+    env->DeleteLocalRef(cm);
+    env->DeleteLocalRef(ctxClass);
+    return false;
+  }
+  std::string clipLabel =
+      label ? std::string(label) : decryptStr(ENC_CLIP_TEXT, sizeof(ENC_CLIP_TEXT));
+  jstring jLabel = env->NewStringUTF(clipLabel.c_str());
+  jstring jText = env->NewStringUTF(text.c_str());
+  jobject clip = env->CallStaticObjectMethod(clipDataClass, newPlain, jLabel, jText);
+  if (clip) {
+    env->CallVoidMethod(cm, setPrimary, clip);
+    env->DeleteLocalRef(clip);
+  }
+  env->DeleteLocalRef(jText);
+  env->DeleteLocalRef(jLabel);
+  env->DeleteLocalRef(clipDataClass);
+  env->DeleteLocalRef(cmClass);
+  env->DeleteLocalRef(cm);
+  env->DeleteLocalRef(ctxClass);
+  return clip != nullptr;
+}
+static std::string getClipboardText(JNIEnv *env) {
+  if (!env || !g_activity) return "";
+  jclass ctxClass = env->FindClass("android/content/Context");
+  if (!ctxClass) return "";
+  jmethodID getSysService = env->GetMethodID(
+      ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+  if (!getSysService) {
+    env->DeleteLocalRef(ctxClass);
+    return "";
+  }
+  jstring clipSvc = env->NewStringUTF("clipboard");
+  jobject cm = env->CallObjectMethod(g_activity, getSysService, clipSvc);
+  env->DeleteLocalRef(clipSvc);
+  if (!cm) {
+    env->DeleteLocalRef(ctxClass);
+    return "";
+  }
+  jclass cmClass = env->FindClass("android/content/ClipboardManager");
+  jclass clipDataClass = env->FindClass("android/content/ClipData");
+  jclass itemClass = env->FindClass("android/content/ClipData$Item");
+  jclass objectClass = env->FindClass("java/lang/Object");
+  if (!cmClass || !clipDataClass || !itemClass || !objectClass) {
+    if (cmClass) env->DeleteLocalRef(cmClass);
+    if (clipDataClass) env->DeleteLocalRef(clipDataClass);
+    if (itemClass) env->DeleteLocalRef(itemClass);
+    if (objectClass) env->DeleteLocalRef(objectClass);
+    env->DeleteLocalRef(cm);
+    env->DeleteLocalRef(ctxClass);
+    return "";
+  }
+  jmethodID getPrimaryClip = env->GetMethodID(
+      cmClass, "getPrimaryClip", "()Landroid/content/ClipData;");
+  jmethodID getItemCount =
+      env->GetMethodID(clipDataClass, "getItemCount", "()I");
+  jmethodID getItemAt = env->GetMethodID(
+      clipDataClass, "getItemAt", "(I)Landroid/content/ClipData$Item;");
+  jmethodID coerceToText = env->GetMethodID(
+      itemClass, "coerceToText",
+      "(Landroid/content/Context;)Ljava/lang/CharSequence;");
+  jmethodID toString =
+      env->GetMethodID(objectClass, "toString", "()Ljava/lang/String;");
+  if (!getPrimaryClip || !getItemCount || !getItemAt || !coerceToText ||
+      !toString) {
+    env->DeleteLocalRef(cmClass);
+    env->DeleteLocalRef(clipDataClass);
+    env->DeleteLocalRef(itemClass);
+    env->DeleteLocalRef(objectClass);
+    env->DeleteLocalRef(cm);
+    env->DeleteLocalRef(ctxClass);
+    return "";
+  }
+  std::string out;
+  jobject clip = env->CallObjectMethod(cm, getPrimaryClip);
+  if (clip) {
+    jint count = env->CallIntMethod(clip, getItemCount);
+    if (count > 0) {
+      jobject item = env->CallObjectMethod(clip, getItemAt, 0);
+      if (item) {
+        jobject textObj = env->CallObjectMethod(item, coerceToText, g_activity);
+        if (textObj) {
+          jstring textStr = (jstring)env->CallObjectMethod(textObj, toString);
+          if (textStr) {
+            const char *chars = env->GetStringUTFChars(textStr, nullptr);
+            if (chars) {
+              out = chars;
+              env->ReleaseStringUTFChars(textStr, chars);
+            }
+            env->DeleteLocalRef(textStr);
+          }
+          env->DeleteLocalRef(textObj);
+        }
+        env->DeleteLocalRef(item);
+      }
+    }
+    env->DeleteLocalRef(clip);
+  }
+  env->DeleteLocalRef(cmClass);
+  env->DeleteLocalRef(clipDataClass);
+  env->DeleteLocalRef(itemClass);
+  env->DeleteLocalRef(objectClass);
+  env->DeleteLocalRef(cm);
+  env->DeleteLocalRef(ctxClass);
+  return out;
+}
+static int importSavedShotsCsv(const std::string &text, int *duplicateCount,
+                               int *invalidCount) {
+  if (duplicateCount) *duplicateCount = 0;
+  if (invalidCount) *invalidCount = 0;
+  std::vector<SavedShot> toAdd;
+  std::vector<std::string> seenKeys;
+  {
+    std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+    for (const auto &shot : g_savedShots) {
+      seenKeys.push_back(
+          formatSavedShotCsvLine(shot.dir0, shot.dir1, shot.power));
+    }
+    size_t pos = 0;
+    while (pos <= text.size()) {
+      size_t next = text.find('\n', pos);
+      std::string line =
+          (next == std::string::npos) ? text.substr(pos) : text.substr(pos, next - pos);
+      pos = (next == std::string::npos) ? (text.size() + 1) : (next + 1);
+      line = trimSavedShotText(line);
+      if (line.empty() || line[0] == '#') continue;
+      float dir0 = 0.0f, dir1 = 0.0f, power = 0.0f;
+      if (sscanf(line.c_str(), " %f , %f , %f ", &dir0, &dir1, &power) != 3) {
+        if (invalidCount) (*invalidCount)++;
+        continue;
+      }
+      if (dir0 != dir0 || dir1 != dir1 || power != power ||
+          dir0 - dir0 != 0.0f || dir1 - dir1 != 0.0f || power - power != 0.0f) {
+        if (invalidCount) (*invalidCount)++;
+        continue;
+      }
+      if (dir0 < -1.0f || dir0 > 1.0f || dir1 < -1.0f || dir1 > 1.0f) {
+        if (invalidCount) (*invalidCount)++;
+        continue;
+      }
+      if (power < 0.01f || power > 100.0f) {
+        if (invalidCount) (*invalidCount)++;
+        continue;
+      }
+      std::string key = formatSavedShotCsvLine(dir0, dir1, power);
+      bool exists = false;
+      for (const auto &seen : seenKeys) {
+        if (seen == key) {
+          exists = true;
+          break;
+        }
+      }
+      if (exists) {
+        if (duplicateCount) (*duplicateCount)++;
+        continue;
+      }
+      seenKeys.push_back(key);
+      toAdd.push_back({dir0, dir1, power});
+    }
+    int slotsLeft = 250 - (int)g_savedShots.size();
+    int addCount = (int)toAdd.size();
+    if (addCount > slotsLeft) addCount = slotsLeft;
+    if (addCount < 0) addCount = 0;
+    for (int i = 0; i < addCount; i++) {
+      g_savedShots.push_back(toAdd[i]);
+    }
+    toAdd.resize(addCount);
+  }
+  if (!toAdd.empty()) saveShotsToFile();
+  return (int)toAdd.size();
+}
+#endif 
+static uint32_t computeKeyHash(const char *data, int dataLen) {
+  std::string salt = decryptStr(ENC_SALT, 14);
+  uint32_t h = 0x811c9dc5u; 
+  for (int i = 0; i < dataLen; i++) {
+    h ^= (uint8_t)data[i];
+    h *= 0x01000193u;
+  }
+  for (int i = 0; i < 14; i++) {
+    h ^= (uint8_t)salt[i];
+    h *= 0x01000193u;
+  }
+  for (size_t i = 0; i < g_deviceId.length(); i++) {
+    h ^= (uint8_t)g_deviceId[i];
+    h *= 0x01000193u;
+  }
+  h ^= h >> 16;
+  h *= 0x45d9f3bu;
+  h ^= h >> 16;
+  return h;
+}
+static uint32_t decodeBase36(const char *str, int len) {
+  uint32_t result = 0;
+  for (int i = 0; i < len; i++) {
+    char c = (char)toupper((unsigned char)str[i]);
+    uint32_t digit;
+    if (c >= '0' && c <= '9')
+      digit = c - '0';
+    else if (c >= 'A' && c <= 'Z')
+      digit = c - 'A' + 10;
+    else
+      return 0;
+    result = result * 36 + digit;
+  }
+  return result;
+}
+static void encodeBase36(uint32_t value, char *out, int len) {
+  std::string chars = decryptStr(ENC_BASE36, 36);
+  for (int i = len - 1; i >= 0; i--) {
+    out[i] = chars[value % 36];
+    value /= 36;
+  }
+  out[len] = '\0';
+}
+static time_t getCachedNtpTime();
+static int validateKey(const std::string &key, bool skipChecksum = false) {
+  std::string clean;
+  for (char c : key) {
+    if (c != '-')
+      clean += (char)toupper((unsigned char)c);
+  }
+  if (clean.length() != 16)
+    return 0;
+  if (!skipChecksum) {
+    std::string prefix = clean.substr(0, 12);
+    std::string checksum = clean.substr(12, 4);
+    uint32_t hash = computeKeyHash(prefix.c_str(), 12);
+    char expected[5];
+    encodeBase36(hash % 1679616u, expected, 4); 
+    if (checksum != std::string(expected))
+      return 0; 
+  }
+  uint32_t creationHours = decodeBase36(clean.c_str(), 4);
+  uint32_t expiryHours = decodeBase36(clean.c_str() + 4, 4);
+  time_t creationTime = KEY_EPOCH + (time_t)creationHours * 3600;
+  time_t expiryTime = KEY_EPOCH + (time_t)expiryHours * 3600;
+  time_t now = time(NULL); 
+  char ctBuf[32], etBuf[32], nowBuf[32];
+  struct tm ct, et, nt;
+  gmtime_r(&creationTime, &ct);
+  gmtime_r(&expiryTime, &et);
+  gmtime_r(&now, &nt);
+  std::string dateFmt = decryptStr(ENC_FMT_DATEFMT, sizeof(ENC_FMT_DATEFMT));
+  strftime(ctBuf, sizeof(ctBuf), dateFmt.c_str(), &ct);
+  strftime(etBuf, sizeof(etBuf), dateFmt.c_str(), &et);
+  strftime(nowBuf, sizeof(nowBuf), dateFmt.c_str(), &nt);
+  if (now > expiryTime) {
+    return 2; 
+  }
+  time_t ntpNow = getCachedNtpTime();
+  if (ntpNow > 0 && ntpNow > expiryTime) {
+    return 2; 
+  }
+  g_expiryTime = expiryTime; 
+  return 1;
+}
+static void checkTamper() {
+  if (g_sabotaged) return;
+  time_t now = time(nullptr);
+  long long secondsLeft = (g_expiryTime > 0)
+      ? (long long)difftime(g_expiryTime, now)
+      : 0;
+  bool tampered = false;
+  if (g_keyValidated && g_expiryTime == 0) tampered = true;
+  int graceWindow = (int)(SEED_MASKS[0] ^ SEED_MASKS[3]) - (int)(SEED_MASKS[1] ^ SEED_MASKS[2]); 
+  if (graceWindow > 0) graceWindow = -graceWindow;
+  if (g_keyValidated && g_expiryTime > 0 && secondsLeft < graceWindow) tampered = true;
+  long long maxValid = 31622400LL;
+  if (g_keyValidated && secondsLeft > maxValid) tampered = true;
+  if (!tampered) return;
+  g_sabotaged = true;
+  uint32_t poison = (uint32_t)SEED_PARTS[0] << 24 | (uint32_t)SEED_PARTS[1] << 16 |
+                    (uint32_t)SEED_MASKS[2] << 8  | (uint32_t)SEED_MASKS[3];
+  poison ^= 0x01000193u; 
+  g_rva_seed ^= poison;
+  g_equation_seed ^= poison; 
+  g_rs_frag0 ^= (uint8_t)(poison >> 24);
+  g_rs_frag1 ^= (uint8_t)(poison >> 16);
+  g_rs_frag2 ^= (uint8_t)(poison >>  8);
+  g_rs_frag3 ^= (uint8_t)(poison >>  0);
+}
+static void updateTimerDisplay(JNIEnv *env) {
+  if (!g_timerTextView || g_expiryTime == 0) return;
+  time_t now = time(nullptr);
+  long long secondsLeft = (long long)difftime(g_expiryTime, now);
+  char buf[64];
+  if (secondsLeft <= 0) {
+    snprintf(buf, sizeof(buf), "%s", decryptStr(ENC_FMT_EXPIRED, sizeof(ENC_FMT_EXPIRED)).c_str());
+  } else {
+    int days  = (int)(secondsLeft / 86400);
+    int hours = (int)((secondsLeft % 86400) / 3600);
+    int mins  = (int)((secondsLeft % 3600) / 60);
+    int secs  = (int)(secondsLeft % 60);
+    std::string expFmt = decryptStr(ENC_FMT_EXPIRES, sizeof(ENC_FMT_EXPIRES)) + "%dd %02dh %02dm %02ds";
+    snprintf(buf, sizeof(buf), expFmt.c_str(),
+             days, hours, mins, secs);
+  }
+  jint color = (secondsLeft <= 0) ? (jint)0xFFFF0000 : (jint)0xFF00FF00;
+  {
+    std::lock_guard<std::mutex> lock(g_uiTextMutex);
+    g_pendingTimerText = buf;
+    g_dirtyTimer = true;
+    g_pendingTimerColor = color;
+    g_dirtyTimerColor = true;
+  }
+  if (overlayView) {
+    jclass viewClass = env->FindClass("android/view/View");
+    if (viewClass) {
+      jmethodID postInvalidate = env->GetMethodID(viewClass, "postInvalidate", "()V");
+      if (postInvalidate) env->CallVoidMethod(overlayView, postInvalidate);
+      env->DeleteLocalRef(viewClass);
+    }
+  }
+}
+static void startTimerCountdown() {
+  if (g_timerThreadRunning) return;
+  g_timerThreadRunning = true;
+  std::thread t([]() {
+    int tickCount = 0;
+    while (g_timerThreadRunning) {
+      checkTamper(); 
+      withJNIEnv([](JNIEnv *env) { updateTimerDisplay(env); });
+      if (g_expiryTime > 0 && time(nullptr) > g_expiryTime && g_keyValidated) {
+        g_keyValidated = false;
+        g_predictionLinesEnabled = false;
+        g_previewLineEnabled = false;
+        g_rva_seed = 0;
+        storeRemoteSeed(0);
+        hasGhostData = false;
+        hasRustBridgeData = false;
+        {
+          std::lock_guard<std::mutex> lock(trajectoryMutex);
+          cachedTrajectoryScreenCoords.clear();
+          hasNewTrajectory = false;
+        }
+        g_timerThreadRunning = false;
+      }
+      if (++tickCount >= 300) {
+        tickCount = 0;
+        withJNIEnv([](JNIEnv *env) { saveAllTimestamps(env); });
+      }
+      sleep(1);
+    }
+  });
+  t.detach();
+}
+#ifdef ADVANCED_CONTROLS
+static void showSavedShotsDialog(JNIEnv *env, jobject activity) {
+  if (g_savedDialogContainer) {
+    jclass viewClass2 = env->FindClass("android/view/View");
+    jmethodID getParent = env->GetMethodID(viewClass2, "getParent", "()Landroid/view/ViewParent;");
+    jclass vgClass = env->FindClass("android/view/ViewGroup");
+    jmethodID removeView = env->GetMethodID(vgClass, "removeView", "(Landroid/view/View;)V");
+    jobject parent = env->CallObjectMethod(g_savedDialogContainer, getParent);
+    if (parent) {
+      env->CallVoidMethod(parent, removeView, g_savedDialogContainer);
+      env->DeleteLocalRef(parent);
+    }
+    env->DeleteGlobalRef(g_savedDialogContainer);
+    g_savedDialogContainer = nullptr;
+    env->DeleteLocalRef(vgClass);
+    env->DeleteLocalRef(viewClass2);
+  }
+  jclass viewClass = env->FindClass("android/view/View");
+  jclass linearLayoutClass = env->FindClass("android/widget/LinearLayout");
+  jclass frameLayoutClass = env->FindClass("android/widget/FrameLayout");
+  jclass scrollViewClass = env->FindClass("android/widget/ScrollView");
+  jmethodID llCtor = env->GetMethodID(linearLayoutClass, "<init>", "(Landroid/content/Context;)V");
+  jmethodID flCtor = env->GetMethodID(frameLayoutClass, "<init>", "(Landroid/content/Context;)V");
+  jmethodID svCtor = env->GetMethodID(scrollViewClass, "<init>", "(Landroid/content/Context;)V");
+  jmethodID setOrientation = env->GetMethodID(linearLayoutClass, "setOrientation", "(I)V");
+  jmethodID llSetPadding = env->GetMethodID(linearLayoutClass, "setPadding", "(IIII)V");
+  jmethodID setBackground = env->GetMethodID(viewClass, "setBackground", "(Landroid/graphics/drawable/Drawable;)V");
+  jmethodID llSetGravity = env->GetMethodID(linearLayoutClass, "setGravity", "(I)V");
+  jmethodID setBgColor = env->GetMethodID(viewClass, "setBackgroundColor", "(I)V");
+  jmethodID viewCtor = env->GetMethodID(viewClass, "<init>", "(Landroid/content/Context;)V");
+  jmethodID setId = env->GetMethodID(viewClass, "setId", "(I)V");
+  jmethodID setOnClickListener = env->GetMethodID(viewClass, "setOnClickListener",
+      "(Landroid/view/View$OnClickListener;)V");
+  jmethodID tvSetGravity = env->GetMethodID(uiClasses.textViewClass, "setGravity", "(I)V");
+  jmethodID setLayoutDir = env->GetMethodID(viewClass, "setLayoutDirection", "(I)V");
+  jclass llParamsClass = env->FindClass("android/widget/LinearLayout$LayoutParams");
+  jmethodID llParamsCtor = env->GetMethodID(llParamsClass, "<init>", "(II)V");
+  jmethodID llParamsCtorW = env->GetMethodID(llParamsClass, "<init>", "(IIF)V");
+  jfieldID topMarginF = env->GetFieldID(llParamsClass, "topMargin", "I");
+  jfieldID bottomMarginF = env->GetFieldID(llParamsClass, "bottomMargin", "I");
+  jmethodID addView = env->GetMethodID(linearLayoutClass, "addView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  int screenHeightPx = 1080;
+  jclass ctxClass = env->FindClass("android/content/Context");
+  jclass resClass = env->FindClass("android/content/res/Resources");
+  jclass dmClass = env->FindClass("android/util/DisplayMetrics");
+  if (ctxClass && resClass && dmClass) {
+    jmethodID getResources = env->GetMethodID(
+        ctxClass, "getResources", "()Landroid/content/res/Resources;");
+    jmethodID getDisplayMetrics = env->GetMethodID(
+        resClass, "getDisplayMetrics", "()Landroid/util/DisplayMetrics;");
+    jfieldID heightPixelsF = env->GetFieldID(dmClass, "heightPixels", "I");
+    if (getResources && getDisplayMetrics && heightPixelsF) {
+      jobject resources = env->CallObjectMethod(activity, getResources);
+      if (resources) {
+        jobject dm = env->CallObjectMethod(resources, getDisplayMetrics);
+        if (dm) {
+          screenHeightPx = env->GetIntField(dm, heightPixelsF);
+          env->DeleteLocalRef(dm);
+        }
+        env->DeleteLocalRef(resources);
+      }
+    }
+  }
+  if (dmClass) env->DeleteLocalRef(dmClass);
+  if (resClass) env->DeleteLocalRef(resClass);
+  if (ctxClass) env->DeleteLocalRef(ctxClass);
+  jobject frame = env->NewObject(frameLayoutClass, flCtor, activity);
+  env->CallVoidMethod(frame, setBgColor, (jint)0xCC000000);
+  env->CallVoidMethod(frame, setId, 999);
+  jobject frameLsnr = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(frame, setOnClickListener, frameLsnr);
+  env->DeleteLocalRef(frameLsnr);
+  jobject panel = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(panel, setOrientation, 1); 
+  env->CallVoidMethod(panel, llSetPadding, 40, 30, 40, 30);
+  env->CallVoidMethod(panel, llSetGravity, 1); 
+  env->CallVoidMethod(panel, setLayoutDir, 0);
+  jobject panelBg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(panelBg, uiClasses.setCornerRadius, 20.0f);
+  env->CallVoidMethod(panelBg, uiClasses.setColor, (jint)0xF0111111);
+  env->CallVoidMethod(panelBg, uiClasses.setStroke, 2, (jint)0xFFAA88FF);
+  env->CallVoidMethod(panel, setBackground, panelBg);
+  env->DeleteLocalRef(panelBg);
+  jobject title = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  int shotCount;
+  { std::lock_guard<std::mutex> lock(g_savedShotsMutex); shotCount = (int)g_savedShots.size(); }
+  char titleBuf[64];
+  std::string titleFmt = decryptStr(ENC_SAVED_TITLE_FMT, sizeof(ENC_SAVED_TITLE_FMT));
+  snprintf(titleBuf, sizeof(titleBuf), titleFmt.c_str(), shotCount);
+  jstring titleText = env->NewStringUTF(titleBuf);
+  env->CallVoidMethod(title, uiClasses.setText, titleText);
+  env->DeleteLocalRef(titleText);
+  env->CallVoidMethod(title, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(title, uiClasses.setTextColor, (jint)0xFFAA88FF);
+  env->CallVoidMethod(title, tvSetGravity, 17);
+  env->CallVoidMethod(title, setLayoutDir, 0);
+  jobject titleParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->CallVoidMethod(panel, addView, title, titleParams);
+  env->DeleteLocalRef(title);
+  env->DeleteLocalRef(titleParams);
+  jobject sep = env->NewObject(viewClass, viewCtor, activity);
+  env->CallVoidMethod(sep, setBgColor, (jint)0xFF444444);
+  jobject sepParams = env->NewObject(llParamsClass, llParamsCtor, -1, 2);
+  env->SetIntField(sepParams, topMarginF, 12);
+  env->SetIntField(sepParams, bottomMarginF, 8);
+  env->CallVoidMethod(panel, addView, sep, sepParams);
+  env->DeleteLocalRef(sep);
+  env->DeleteLocalRef(sepParams);
+  jobject scrollView = env->NewObject(scrollViewClass, svCtor, activity);
+  jobject shotList = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(shotList, setOrientation, 1); 
+  if (shotCount == 0) {
+    jobject emptyText = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring emptyStr = env->NewStringUTF(decryptStr(ENC_SAVED_EMPTY, sizeof(ENC_SAVED_EMPTY)).c_str());
+    env->CallVoidMethod(emptyText, uiClasses.setText, emptyStr);
+    env->DeleteLocalRef(emptyStr);
+    env->CallVoidMethod(emptyText, uiClasses.setTextSize, 11.0f);
+    env->CallVoidMethod(emptyText, uiClasses.setTextColor, (jint)0xFF666666);
+    env->CallVoidMethod(emptyText, tvSetGravity, 17);
+    env->CallVoidMethod(emptyText, uiClasses.setPadding, 0, 30, 0, 30);
+    jobject emptyParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->CallVoidMethod(shotList, addView, emptyText, emptyParams);
+    env->DeleteLocalRef(emptyText);
+    env->DeleteLocalRef(emptyParams);
+  } else {
+    std::lock_guard<std::mutex> lock(g_savedShotsMutex);
+    std::string entryFmt = decryptStr(ENC_SAVED_ENTRY_FMT, sizeof(ENC_SAVED_ENTRY_FMT));
+    std::string delLabel = decryptStr(ENC_SAVED_DELETE, sizeof(ENC_SAVED_DELETE));
+    for (int i = 0; i < (int)g_savedShots.size(); i++) {
+      const auto &s = g_savedShots[i];
+      float angleDeg = atan2f(s.dir1, s.dir0) * (180.0f / 3.14159265f);
+      jobject row = env->NewObject(linearLayoutClass, llCtor, activity);
+      env->CallVoidMethod(row, setOrientation, 0); 
+      env->CallVoidMethod(row, llSetPadding, 8, 6, 8, 6);
+      jint rowBg = (i % 2 == 0) ? (jint)0xFF1A1A1A : (jint)0xFF222222;
+      env->CallVoidMethod(row, setBgColor, rowBg);
+      jobject label = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+      char entryBuf[80];
+      snprintf(entryBuf, sizeof(entryBuf), entryFmt.c_str(), i + 1, (double)angleDeg, (double)s.power);
+      jstring entryStr = env->NewStringUTF(entryBuf);
+      env->CallVoidMethod(label, uiClasses.setText, entryStr);
+      env->DeleteLocalRef(entryStr);
+      env->CallVoidMethod(label, uiClasses.setTextSize, 10.0f);
+      env->CallVoidMethod(label, uiClasses.setTextColor, (jint)0xFFCCCCCC);
+      env->CallVoidMethod(label, tvSetGravity, 19); 
+      jobject labelParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+      env->CallVoidMethod(row, addView, label, labelParams);
+      env->DeleteLocalRef(label);
+      env->DeleteLocalRef(labelParams);
+      jobject delBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+      jstring delStr = env->NewStringUTF(delLabel.c_str());
+      env->CallVoidMethod(delBtn, uiClasses.setText, delStr);
+      env->DeleteLocalRef(delStr);
+      env->CallVoidMethod(delBtn, uiClasses.setTextSize, 9.0f);
+      env->CallVoidMethod(delBtn, uiClasses.setTextColor, (jint)0xFFFF6666);
+      env->CallVoidMethod(delBtn, tvSetGravity, 17); 
+      env->CallVoidMethod(delBtn, uiClasses.setPadding, 16, 4, 16, 4);
+      env->CallVoidMethod(delBtn, setId, 1000 + i); 
+      jobject delBg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+      env->CallVoidMethod(delBg, uiClasses.setCornerRadius, 6.0f);
+      env->CallVoidMethod(delBg, uiClasses.setColor, (jint)0xFF2A1515);
+      env->CallVoidMethod(delBg, uiClasses.setStroke, 1, (jint)0xFFFF6666);
+      env->CallVoidMethod(delBtn, setBackground, delBg);
+      env->DeleteLocalRef(delBg);
+      jobject delLsnr = env->NewObject(uiClasses.overlayClass,
+          env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+      env->CallVoidMethod(delBtn, setOnClickListener, delLsnr);
+      env->DeleteLocalRef(delLsnr);
+      jobject delParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+      env->CallVoidMethod(row, addView, delBtn, delParams);
+      env->DeleteLocalRef(delBtn);
+      env->DeleteLocalRef(delParams);
+      jobject rowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+      env->SetIntField(rowParams, topMarginF, 2);
+      env->CallVoidMethod(shotList, addView, row, rowParams);
+      env->DeleteLocalRef(row);
+      env->DeleteLocalRef(rowParams);
+    }
+  }
+  jclass svParamsClass = env->FindClass("android/widget/FrameLayout$LayoutParams");
+  jmethodID svParamsCtor = env->GetMethodID(svParamsClass, "<init>", "(II)V");
+  jobject svChildParams = env->NewObject(svParamsClass, svParamsCtor, -1, -2);
+  jmethodID svAddView = env->GetMethodID(scrollViewClass, "addView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  env->CallVoidMethod(scrollView, svAddView, shotList, svChildParams);
+  env->DeleteLocalRef(shotList);
+  env->DeleteLocalRef(svChildParams);
+  int maxScrollHeight = (int)(screenHeightPx * 0.40f);
+  if (maxScrollHeight < 200) maxScrollHeight = 200;
+  int estimatedListHeight = (shotCount == 0) ? 120 : (shotCount * 90);
+  int scrollHeight = (estimatedListHeight > maxScrollHeight) ? maxScrollHeight : estimatedListHeight;
+  jobject svParams = env->NewObject(llParamsClass, llParamsCtor, -1, scrollHeight);
+  env->SetIntField(svParams, topMarginF, 8);
+  env->CallVoidMethod(panel, addView, scrollView, svParams);
+  env->DeleteLocalRef(scrollView);
+  env->DeleteLocalRef(svParams);
+  int panelHeight = scrollHeight + 400;
+  int maxPanelHeight = screenHeightPx - 100;
+  if (panelHeight > maxPanelHeight) panelHeight = maxPanelHeight;
+  if (panelHeight < 400) panelHeight = 400;
+  jobject actionRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(actionRow, setOrientation, 0); 
+  jobject actionRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(actionRowParams, topMarginF, 12);
+  env->CallVoidMethod(panel, addView, actionRow, actionRowParams);
+  env->DeleteLocalRef(actionRowParams);
+  jobject exportBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring exportStr = env->NewStringUTF(decryptStr(ENC_EXPORT, sizeof(ENC_EXPORT)).c_str());
+  env->CallVoidMethod(exportBtn, uiClasses.setText, exportStr);
+  env->DeleteLocalRef(exportStr);
+  env->CallVoidMethod(exportBtn, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(exportBtn, uiClasses.setTextColor, (jint)0xFF66FFAA);
+  env->CallVoidMethod(exportBtn, tvSetGravity, 17);
+  env->CallVoidMethod(exportBtn, uiClasses.setPadding, 0, 14, 0, 14);
+  env->CallVoidMethod(exportBtn, setId, 34);
+  jobject exportBg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(exportBg, uiClasses.setCornerRadius, 10.0f);
+  env->CallVoidMethod(exportBg, uiClasses.setColor, (jint)0xFF153025);
+  env->CallVoidMethod(exportBg, uiClasses.setStroke, 1, (jint)0xFF66FFAA);
+  env->CallVoidMethod(exportBtn, setBackground, exportBg);
+  env->DeleteLocalRef(exportBg);
+  jobject exportLsnr = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(exportBtn, setOnClickListener, exportLsnr);
+  env->DeleteLocalRef(exportLsnr);
+  jobject exportParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(actionRow, addView, exportBtn, exportParams);
+  env->DeleteLocalRef(exportBtn);
+  env->DeleteLocalRef(exportParams);
+  jobject spacer = env->NewObject(viewClass, viewCtor, activity);
+  jobject spacerParams = env->NewObject(llParamsClass, llParamsCtor, 12, -2);
+  env->CallVoidMethod(actionRow, addView, spacer, spacerParams);
+  env->DeleteLocalRef(spacer);
+  env->DeleteLocalRef(spacerParams);
+  jobject importBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring importStr = env->NewStringUTF(decryptStr(ENC_IMPORT, sizeof(ENC_IMPORT)).c_str());
+  env->CallVoidMethod(importBtn, uiClasses.setText, importStr);
+  env->DeleteLocalRef(importStr);
+  env->CallVoidMethod(importBtn, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(importBtn, uiClasses.setTextColor, (jint)0xFF66CCFF);
+  env->CallVoidMethod(importBtn, tvSetGravity, 17);
+  env->CallVoidMethod(importBtn, uiClasses.setPadding, 0, 14, 0, 14);
+  env->CallVoidMethod(importBtn, setId, 35);
+  jobject importBg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(importBg, uiClasses.setCornerRadius, 10.0f);
+  env->CallVoidMethod(importBg, uiClasses.setColor, (jint)0xFF152430);
+  env->CallVoidMethod(importBg, uiClasses.setStroke, 1, (jint)0xFF66CCFF);
+  env->CallVoidMethod(importBtn, setBackground, importBg);
+  env->DeleteLocalRef(importBg);
+  jobject importLsnr = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(importBtn, setOnClickListener, importLsnr);
+  env->DeleteLocalRef(importLsnr);
+  jobject importParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(actionRow, addView, importBtn, importParams);
+  env->DeleteLocalRef(importBtn);
+  env->DeleteLocalRef(importParams);
+  env->DeleteLocalRef(actionRow);
+  jclass flParamsClass = env->FindClass("android/widget/FrameLayout$LayoutParams");
+  jmethodID flParamsCtor3 = env->GetMethodID(flParamsClass, "<init>", "(III)V");
+  jobject outerParams = env->NewObject(flParamsClass, flParamsCtor3, 700, panelHeight, 17); 
+  jmethodID flAddView = env->GetMethodID(frameLayoutClass, "addView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  env->CallVoidMethod(frame, flAddView, panel, outerParams);
+  env->DeleteLocalRef(panel);
+  env->DeleteLocalRef(outerParams);
+  jclass flParamsClass2 = env->FindClass("android/widget/FrameLayout$LayoutParams");
+  jmethodID flParamsCtor2 = env->GetMethodID(flParamsClass2, "<init>", "(II)V");
+  jobject frameParams = env->NewObject(flParamsClass2, flParamsCtor2, -1, -1);
+  jclass activityClass = env->FindClass("android/app/Activity");
+  jmethodID addContentView = env->GetMethodID(activityClass, "addContentView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  env->CallVoidMethod(activity, addContentView, frame, frameParams);
+  g_savedDialogContainer = env->NewGlobalRef(frame);
+  env->DeleteLocalRef(frame);
+  env->DeleteLocalRef(frameParams);
+  env->DeleteLocalRef(viewClass);
+  env->DeleteLocalRef(linearLayoutClass);
+  env->DeleteLocalRef(frameLayoutClass);
+  env->DeleteLocalRef(scrollViewClass);
+  env->DeleteLocalRef(llParamsClass);
+  env->DeleteLocalRef(svParamsClass);
+  env->DeleteLocalRef(flParamsClass);
+  env->DeleteLocalRef(flParamsClass2);
+  env->DeleteLocalRef(activityClass);
+}
+static void dismissSavedDialog(JNIEnv *env) {
+  if (!g_savedDialogContainer) return;
+  jclass viewClass = env->FindClass("android/view/View");
+  jmethodID getParent = env->GetMethodID(viewClass, "getParent", "()Landroid/view/ViewParent;");
+  jclass vgClass = env->FindClass("android/view/ViewGroup");
+  jmethodID removeView = env->GetMethodID(vgClass, "removeView", "(Landroid/view/View;)V");
+  jobject parent = env->CallObjectMethod(g_savedDialogContainer, getParent);
+  if (parent) {
+    env->CallVoidMethod(parent, removeView, g_savedDialogContainer);
+    env->DeleteLocalRef(parent);
+  }
+  env->DeleteGlobalRef(g_savedDialogContainer);
+  g_savedDialogContainer = nullptr;
+  env->DeleteLocalRef(vgClass);
+  env->DeleteLocalRef(viewClass);
+}
+#endif 
+void showUpdateDialog(JNIEnv *env, jobject activity) {
+  jclass viewClass = env->FindClass("android/view/View");
+  jclass linearLayoutClass = env->FindClass("android/widget/LinearLayout");
+  jclass frameLayoutClass = env->FindClass("android/widget/FrameLayout");
+  jmethodID llCtor = env->GetMethodID(linearLayoutClass, "<init>",
+                                      "(Landroid/content/Context;)V");
+  jmethodID flCtor = env->GetMethodID(frameLayoutClass, "<init>",
+                                      "(Landroid/content/Context;)V");
+  jmethodID setOrientation =
+      env->GetMethodID(linearLayoutClass, "setOrientation", "(I)V");
+  jmethodID llSetPadding =
+      env->GetMethodID(linearLayoutClass, "setPadding", "(IIII)V");
+  jmethodID setBackground = env->GetMethodID(
+      viewClass, "setBackground", "(Landroid/graphics/drawable/Drawable;)V");
+  jmethodID llSetGravity =
+      env->GetMethodID(linearLayoutClass, "setGravity", "(I)V");
+  jmethodID setLayoutDir =
+      env->GetMethodID(viewClass, "setLayoutDirection", "(I)V");
+  jmethodID tvSetGravity =
+      env->GetMethodID(uiClasses.textViewClass, "setGravity", "(I)V");
+  jmethodID setBgColor =
+      env->GetMethodID(viewClass, "setBackgroundColor", "(I)V");
+  jmethodID viewCtor =
+      env->GetMethodID(viewClass, "<init>", "(Landroid/content/Context;)V");
+  jmethodID setId = env->GetMethodID(viewClass, "setId", "(I)V");
+  jmethodID setOnClickListener =
+      env->GetMethodID(viewClass, "setOnClickListener",
+                       "(Landroid/view/View$OnClickListener;)V");
+  jclass llParamsClass =
+      env->FindClass("android/widget/LinearLayout$LayoutParams");
+  jmethodID llParamsCtor = env->GetMethodID(llParamsClass, "<init>", "(II)V");
+  jfieldID topMarginF = env->GetFieldID(llParamsClass, "topMargin", "I");
+  jfieldID bottomMarginF = env->GetFieldID(llParamsClass, "bottomMargin", "I");
+  jmethodID addView = env->GetMethodID(
+      linearLayoutClass, "addView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  jclass typefaceClass = env->FindClass("android/graphics/Typeface");
+  jfieldID boldField = env->GetStaticFieldID(typefaceClass, "DEFAULT_BOLD",
+                                             "Landroid/graphics/Typeface;");
+  jobject boldTf = env->GetStaticObjectField(typefaceClass, boldField);
+  jobject frame = env->NewObject(frameLayoutClass, flCtor, activity);
+  env->CallVoidMethod(frame, setBgColor, (jint)0xCC000000);
+  env->CallVoidMethod(frame, setLayoutDir, 0);
+  jobject panel = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(panel, setOrientation, 1); 
+  env->CallVoidMethod(panel, llSetPadding, 50, 40, 50, 40);
+  env->CallVoidMethod(panel, llSetGravity, 1); 
+  env->CallVoidMethod(panel, setLayoutDir, 0);
+  jobject panelBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                   uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(panelBg, uiClasses.setCornerRadius, 25.0f);
+  env->CallVoidMethod(panelBg, uiClasses.setColor, (jint)0xAA000000);
+  env->CallVoidMethod(panelBg, uiClasses.setStroke, 4, (jint)0xFF555555);
+  env->CallVoidMethod(panel, setBackground, panelBg);
+  env->DeleteLocalRef(panelBg);
+  jobject title =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring titleText = env->NewStringUTF(decryptStr(ENC_UPDATE_TITLE, sizeof(ENC_UPDATE_TITLE)).c_str());
+  env->CallVoidMethod(title, uiClasses.setText, titleText);
+  env->DeleteLocalRef(titleText);
+  env->CallVoidMethod(title, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(title, uiClasses.setTextColor, (jint)0xFFFFFFFF);
+  env->CallVoidMethod(title, uiClasses.setTypeface, boldTf);
+  env->CallVoidMethod(title, tvSetGravity, 17); 
+  env->CallVoidMethod(title, setLayoutDir, 0);
+  jobject titleParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->CallVoidMethod(panel, addView, title, titleParams);
+  env->DeleteLocalRef(title);
+  env->DeleteLocalRef(titleParams);
+  jobject sep = env->NewObject(viewClass, viewCtor, activity);
+  env->CallVoidMethod(sep, setBgColor, (jint)0xFF555555);
+  jobject sepParams = env->NewObject(llParamsClass, llParamsCtor, -1, 2);
+  env->SetIntField(sepParams, topMarginF, 15);
+  env->SetIntField(sepParams, bottomMarginF, 15);
+  env->CallVoidMethod(panel, addView, sep, sepParams);
+  env->DeleteLocalRef(sep);
+  env->DeleteLocalRef(sepParams);
+  jobject msg =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  std::string msgStr = decryptStr(ENC_UPDATE_MSG_FMT, sizeof(ENC_UPDATE_MSG_FMT));
+  jstring msgText = env->NewStringUTF(msgStr.c_str());
+  env->CallVoidMethod(msg, uiClasses.setText, msgText);
+  env->DeleteLocalRef(msgText);
+  env->CallVoidMethod(msg, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(msg, uiClasses.setTextColor, (jint)0xFF888888);
+  env->CallVoidMethod(msg, tvSetGravity, 17); 
+  env->CallVoidMethod(msg, setLayoutDir, 0);
+  jobject msgParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->CallVoidMethod(panel, addView, msg, msgParams);
+  env->DeleteLocalRef(msg);
+  env->DeleteLocalRef(msgParams);
+  jobject dlBtn =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring dlText = env->NewStringUTF(decryptStr(ENC_UPDATE_DL_BTN, sizeof(ENC_UPDATE_DL_BTN)).c_str());
+  env->CallVoidMethod(dlBtn, uiClasses.setText, dlText);
+  env->DeleteLocalRef(dlText);
+  env->CallVoidMethod(dlBtn, uiClasses.setTextSize, 13.0f);
+  env->CallVoidMethod(dlBtn, uiClasses.setTextColor, (jint)0xFFBBBBBB);
+  env->CallVoidMethod(dlBtn, uiClasses.setTypeface, boldTf);
+  env->CallVoidMethod(dlBtn, tvSetGravity, 17); 
+  env->CallVoidMethod(dlBtn, setLayoutDir, 0);
+  env->CallVoidMethod(dlBtn, uiClasses.setPadding, 0, 22, 0, 22);
+  jobject dlBtnBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                   uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(dlBtnBg, uiClasses.setCornerRadius, 12.0f);
+  env->CallVoidMethod(dlBtnBg, uiClasses.setColor, (jint)0xFF2A2A2A);
+  env->CallVoidMethod(dlBtnBg, uiClasses.setStroke, 2, (jint)0xFF666666);
+  env->CallVoidMethod(dlBtn, setBackground, dlBtnBg);
+  env->DeleteLocalRef(dlBtnBg);
+  env->CallVoidMethod(dlBtn, setId, 30); 
+  jobject dlClickListener =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(dlBtn, setOnClickListener, dlClickListener);
+  env->DeleteLocalRef(dlClickListener);
+  jobject dlBtnParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(dlBtnParams, topMarginF, 25);
+  env->CallVoidMethod(panel, addView, dlBtn, dlBtnParams);
+  env->DeleteLocalRef(dlBtn);
+  env->DeleteLocalRef(dlBtnParams);
+  jobject note =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring noteText = env->NewStringUTF(decryptStr(ENC_UPDATE_NOTE, sizeof(ENC_UPDATE_NOTE)).c_str());
+  env->CallVoidMethod(note, uiClasses.setText, noteText);
+  env->DeleteLocalRef(noteText);
+  env->CallVoidMethod(note, uiClasses.setTextSize, 8.0f);
+  env->CallVoidMethod(note, uiClasses.setTextColor, (jint)0xFF555555);
+  env->CallVoidMethod(note, tvSetGravity, 17); 
+  env->CallVoidMethod(note, setLayoutDir, 0);
+  jobject noteParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(noteParams, topMarginF, 12);
+  env->CallVoidMethod(panel, addView, note, noteParams);
+  env->DeleteLocalRef(note);
+  env->DeleteLocalRef(noteParams);
+  jclass flParamsClass =
+      env->FindClass("android/widget/FrameLayout$LayoutParams");
+  jmethodID flParamsCtor = env->GetMethodID(flParamsClass, "<init>", "(III)V");
+  jobject outerParams =
+      env->NewObject(flParamsClass, flParamsCtor, 650, -2, 17); 
+  jmethodID flAddView = env->GetMethodID(
+      frameLayoutClass, "addView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  env->CallVoidMethod(frame, flAddView, panel, outerParams);
+  env->DeleteLocalRef(panel);
+  env->DeleteLocalRef(outerParams);
+  jclass flParamsClass2 =
+      env->FindClass("android/widget/FrameLayout$LayoutParams");
+  jmethodID flParamsCtor2 = env->GetMethodID(flParamsClass2, "<init>", "(II)V");
+  jobject frameParams = env->NewObject(flParamsClass2, flParamsCtor2, -1, -1);
+  jclass activityClass = env->FindClass("android/app/Activity");
+  jmethodID addContentView = env->GetMethodID(
+      activityClass, "addContentView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  env->CallVoidMethod(activity, addContentView, frame, frameParams);
+  g_updateContainer = env->NewGlobalRef(frame);
+  env->DeleteLocalRef(frame);
+  env->DeleteLocalRef(frameParams);
+  env->DeleteLocalRef(viewClass);
+  env->DeleteLocalRef(linearLayoutClass);
+  env->DeleteLocalRef(frameLayoutClass);
+  env->DeleteLocalRef(llParamsClass);
+  env->DeleteLocalRef(typefaceClass);
+  env->DeleteLocalRef(flParamsClass);
+  env->DeleteLocalRef(flParamsClass2);
+  env->DeleteLocalRef(activityClass);
+}
+void showLoginDialog(JNIEnv *env, jobject activity) {
+  jclass viewClass = env->FindClass("android/view/View");
+  jclass linearLayoutClass = env->FindClass("android/widget/LinearLayout");
+  jclass frameLayoutClass = env->FindClass("android/widget/FrameLayout");
+  jclass editTextClass = env->FindClass("android/widget/EditText");
+  jmethodID llCtor = env->GetMethodID(linearLayoutClass, "<init>",
+                                      "(Landroid/content/Context;)V");
+  jmethodID flCtor = env->GetMethodID(frameLayoutClass, "<init>",
+                                      "(Landroid/content/Context;)V");
+  jmethodID setOrientation =
+      env->GetMethodID(linearLayoutClass, "setOrientation", "(I)V");
+  jmethodID llSetPadding =
+      env->GetMethodID(linearLayoutClass, "setPadding", "(IIII)V");
+  jmethodID setBackground = env->GetMethodID(
+      viewClass, "setBackground", "(Landroid/graphics/drawable/Drawable;)V");
+  jmethodID llSetGravity =
+      env->GetMethodID(linearLayoutClass, "setGravity", "(I)V");
+  jmethodID setLayoutDir =
+      env->GetMethodID(viewClass, "setLayoutDirection", "(I)V");
+  jmethodID tvSetGravity =
+      env->GetMethodID(uiClasses.textViewClass, "setGravity", "(I)V");
+  jmethodID setBgColor =
+      env->GetMethodID(viewClass, "setBackgroundColor", "(I)V");
+  jmethodID viewCtor =
+      env->GetMethodID(viewClass, "<init>", "(Landroid/content/Context;)V");
+  jmethodID setId = env->GetMethodID(viewClass, "setId", "(I)V");
+  jmethodID setOnClickListener =
+      env->GetMethodID(viewClass, "setOnClickListener",
+                       "(Landroid/view/View$OnClickListener;)V");
+  jclass llParamsClass =
+      env->FindClass("android/widget/LinearLayout$LayoutParams");
+  jmethodID llParamsCtor = env->GetMethodID(llParamsClass, "<init>", "(II)V");
+  jmethodID llParamsCtorW = env->GetMethodID(llParamsClass, "<init>", "(IIF)V");
+  jfieldID topMarginF = env->GetFieldID(llParamsClass, "topMargin", "I");
+  jfieldID bottomMarginF = env->GetFieldID(llParamsClass, "bottomMargin", "I");
+  jmethodID addView = env->GetMethodID(
+      linearLayoutClass, "addView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  jclass typefaceClass = env->FindClass("android/graphics/Typeface");
+  jfieldID boldField = env->GetStaticFieldID(typefaceClass, "DEFAULT_BOLD",
+                                             "Landroid/graphics/Typeface;");
+  jobject boldTf = env->GetStaticObjectField(typefaceClass, boldField);
+  jobject frame = env->NewObject(frameLayoutClass, flCtor, activity);
+  env->CallVoidMethod(frame, setBgColor, (jint)0xCC000000);
+  env->CallVoidMethod(frame, setLayoutDir, 0);
+  jobject panel = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(panel, setOrientation, 1); 
+  env->CallVoidMethod(panel, llSetPadding, 50, 40, 50, 40);
+  env->CallVoidMethod(panel, llSetGravity, 1); 
+  env->CallVoidMethod(panel, setLayoutDir, 0);
+  jobject panelBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                   uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(panelBg, uiClasses.setCornerRadius, 25.0f);
+  env->CallVoidMethod(panelBg, uiClasses.setColor, (jint)0xFF1A1A1A);
+  env->CallVoidMethod(panelBg, uiClasses.setStroke, 4, (jint)0xFF555555);
+  env->CallVoidMethod(panel, setBackground, panelBg);
+  env->DeleteLocalRef(panelBg);
+  jobject title =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring titleText =
+      env->NewStringUTF(decryptStr(ENC_TITLE, sizeof(ENC_TITLE)).c_str());
+  env->CallVoidMethod(title, uiClasses.setText, titleText);
+  env->DeleteLocalRef(titleText);
+  env->CallVoidMethod(title, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(title, uiClasses.setTextColor, (jint)0xFFFFFFFF);
+  env->CallVoidMethod(title, uiClasses.setTypeface, boldTf);
+  env->CallVoidMethod(title, tvSetGravity, 17); 
+  env->CallVoidMethod(title, setLayoutDir, 0);  
+  jobject titleParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->CallVoidMethod(panel, addView, title, titleParams);
+  env->DeleteLocalRef(title);
+  env->DeleteLocalRef(titleParams);
+  jobject sep = env->NewObject(viewClass, viewCtor, activity);
+  env->CallVoidMethod(sep, setBgColor, (jint)0xFF555555);
+  jobject sepParams = env->NewObject(llParamsClass, llParamsCtor, -1, 2);
+  env->SetIntField(sepParams, topMarginF, 15);
+  env->SetIntField(sepParams, bottomMarginF, 15);
+  env->CallVoidMethod(panel, addView, sep, sepParams);
+  env->DeleteLocalRef(sep);
+  env->DeleteLocalRef(sepParams);
+  jobject keyRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(keyRow, setOrientation, 0); 
+  env->CallVoidMethod(keyRow, llSetGravity, 17);  
+  env->CallVoidMethod(keyRow, setLayoutDir, 0);
+  jmethodID etCtor =
+      env->GetMethodID(editTextClass, "<init>", "(Landroid/content/Context;)V");
+  jmethodID setInputType =
+      env->GetMethodID(editTextClass, "setInputType", "(I)V");
+  jmethodID setSingleLine =
+      env->GetMethodID(editTextClass, "setSingleLine", "(Z)V");
+  jmethodID setFilters = env->GetMethodID(editTextClass, "setFilters",
+                                          "([Landroid/text/InputFilter;)V");
+  jmethodID setHint =
+      env->GetMethodID(editTextClass, "setHint", "(Ljava/lang/CharSequence;)V");
+  jmethodID setHintColor =
+      env->GetMethodID(editTextClass, "setHintTextColor", "(I)V");
+  jclass lengthFilterClass =
+      env->FindClass("android/text/InputFilter$LengthFilter");
+  jmethodID lfCtor = env->GetMethodID(lengthFilterClass, "<init>", "(I)V");
+  jclass inputFilterClass = env->FindClass("android/text/InputFilter");
+  jobject fields[4];
+  jstring hint =
+      env->NewStringUTF(decryptStr(ENC_XXXX, sizeof(ENC_XXXX)).c_str());
+  for (int i = 0; i < 4; i++) {
+    if (i > 0) {
+      jobject dash = env->NewObject(uiClasses.textViewClass,
+                                    uiClasses.textViewCtor, activity);
+      jstring dashText = env->NewStringUTF("-");
+      env->CallVoidMethod(dash, uiClasses.setText, dashText);
+      env->DeleteLocalRef(dashText);
+      env->CallVoidMethod(dash, uiClasses.setTextSize, 18.0f);
+      env->CallVoidMethod(dash, uiClasses.setTextColor, (jint)0xFF555555);
+      env->CallVoidMethod(dash, tvSetGravity, 17);
+      env->CallVoidMethod(dash, setLayoutDir, 0); 
+      env->CallVoidMethod(dash, uiClasses.setPadding, 4, 0, 4, 0);
+      jobject dashParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+      env->CallVoidMethod(keyRow, addView, dash, dashParams);
+      env->DeleteLocalRef(dash);
+      env->DeleteLocalRef(dashParams);
+    }
+    jobject et = env->NewObject(editTextClass, etCtor, activity);
+    env->CallVoidMethod(et, uiClasses.setTextSize, 16.0f);
+    env->CallVoidMethod(et, uiClasses.setTextColor, (jint)0xFFFFFFFF);
+    env->CallVoidMethod(et, uiClasses.setTypeface, uiClasses.monospaceTypeface);
+    env->CallVoidMethod(et, tvSetGravity, 17); 
+    env->CallVoidMethod(et, uiClasses.setPadding, 8, 18, 8, 18);
+    env->CallVoidMethod(et, setLayoutDir, 0); 
+    env->CallVoidMethod(et, setSingleLine, (jboolean) true);
+    env->CallVoidMethod(et, setInputType, (jint)(0x00001001 | 0x00080000));
+    if (i > 0) {
+      jobject filter = env->NewObject(lengthFilterClass, lfCtor, 4);
+      jobjectArray filterArr = env->NewObjectArray(1, inputFilterClass, filter);
+      env->CallVoidMethod(et, setFilters, filterArr);
+      env->DeleteLocalRef(filter);
+      env->DeleteLocalRef(filterArr);
+    }
+    env->CallVoidMethod(et, setHint, hint);
+    env->CallVoidMethod(et, setHintColor, (jint)0x33FFFFFF);
+    jobject etBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                  uiClasses.gradientDrawableCtor);
+    env->CallVoidMethod(etBg, uiClasses.setCornerRadius, 10.0f);
+    env->CallVoidMethod(etBg, uiClasses.setColor, (jint)0xFF0D0D0D);
+    env->CallVoidMethod(etBg, uiClasses.setStroke, 2, (jint)0xFF444444);
+    env->CallVoidMethod(et, setBackground, etBg);
+    env->DeleteLocalRef(etBg);
+    jobject etParams =
+        env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+    env->CallVoidMethod(keyRow, addView, et, etParams);
+    env->DeleteLocalRef(etParams);
+    fields[i] = et;
+  }
+  env->DeleteLocalRef(hint);
+  g_keyField1 = env->NewGlobalRef(fields[0]);
+  g_keyField2 = env->NewGlobalRef(fields[1]);
+  g_keyField3 = env->NewGlobalRef(fields[2]);
+  g_keyField4 = env->NewGlobalRef(fields[3]);
+  {
+    jclass watcherClass = env->FindClass(decryptStr(ENC_CLIPBOARD_CLASS, sizeof(ENC_CLIPBOARD_CLASS)).c_str());
+    if (watcherClass) {
+      jmethodID registerMethod = env->GetStaticMethodID(
+          watcherClass, "register",
+          "(Landroid/widget/EditText;Landroid/widget/EditText;"
+          "Landroid/widget/EditText;Landroid/widget/EditText;)V");
+      if (registerMethod) {
+        env->CallStaticVoidMethod(watcherClass, registerMethod,
+                                  fields[0], fields[1], fields[2], fields[3]);
+      }
+      env->DeleteLocalRef(watcherClass);
+    }
+  }
+  for (int i = 0; i < 4; i++)
+    env->DeleteLocalRef(fields[i]);
+  jobject keyRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(keyRowParams, topMarginF, 20);
+  env->CallVoidMethod(panel, addView, keyRow, keyRowParams);
+  env->DeleteLocalRef(keyRow);
+  env->DeleteLocalRef(keyRowParams);
+  jobject loginBtn =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring loginText =
+      env->NewStringUTF(decryptStr(ENC_LOGIN, sizeof(ENC_LOGIN)).c_str());
+  env->CallVoidMethod(loginBtn, uiClasses.setText, loginText);
+  env->DeleteLocalRef(loginText);
+  env->CallVoidMethod(loginBtn, uiClasses.setTextSize, 13.0f);
+  env->CallVoidMethod(loginBtn, uiClasses.setTextColor, (jint)0xFFBBBBBB);
+  env->CallVoidMethod(loginBtn, uiClasses.setTypeface, boldTf);
+  env->CallVoidMethod(loginBtn, tvSetGravity, 17); 
+  env->CallVoidMethod(loginBtn, setLayoutDir, 0);  
+  env->CallVoidMethod(loginBtn, uiClasses.setPadding, 0, 22, 0, 22);
+  jobject btnBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                 uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(btnBg, uiClasses.setCornerRadius, 12.0f);
+  env->CallVoidMethod(btnBg, uiClasses.setColor, (jint)0xFF2A2A2A);
+  env->CallVoidMethod(btnBg, uiClasses.setStroke, 2, (jint)0xFF666666);
+  env->CallVoidMethod(loginBtn, setBackground, btnBg);
+  env->DeleteLocalRef(btnBg);
+  env->CallVoidMethod(loginBtn, setId, 10);
+  jobject clickListener =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(loginBtn, setOnClickListener, clickListener);
+  env->DeleteLocalRef(clickListener);
+  jobject loginBtnParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(loginBtnParams, topMarginF, 25);
+  env->CallVoidMethod(panel, addView, loginBtn, loginBtnParams);
+  env->DeleteLocalRef(loginBtn);
+  {
+    jobject freeBox = env->NewObject(linearLayoutClass, llCtor, activity);
+    env->CallVoidMethod(freeBox, setOrientation, 1); 
+    env->CallVoidMethod(freeBox, llSetGravity, 17);  
+    env->CallVoidMethod(freeBox, llSetPadding, 25, 20, 25, 20);
+    jobject freeBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                     uiClasses.gradientDrawableCtor);
+    env->CallVoidMethod(freeBg, uiClasses.setCornerRadius, 18.0f);
+    env->CallVoidMethod(freeBg, uiClasses.setColor, (jint)0xFF1A1A1A);
+    env->CallVoidMethod(freeBg, uiClasses.setStroke, 2, (jint)0xFF444444);
+    env->CallVoidMethod(freeBox, setBackground, freeBg);
+    env->DeleteLocalRef(freeBg);
+    jobject freeNote =
+        env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring freeNoteText =
+        env->NewStringUTF(decryptStr(ENC_FREE_NOTE, sizeof(ENC_FREE_NOTE)).c_str());
+    env->CallVoidMethod(freeNote, uiClasses.setText, freeNoteText);
+    env->DeleteLocalRef(freeNoteText);
+    env->CallVoidMethod(freeNote, uiClasses.setTextSize, 8.0f);
+    env->CallVoidMethod(freeNote, uiClasses.setTextColor, (jint)0xFF555555);
+    env->CallVoidMethod(freeNote, tvSetGravity, 17); 
+    env->CallVoidMethod(freeNote, setLayoutDir, 0);  
+    jobject freeNoteParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->CallVoidMethod(freeBox, addView, freeNote, freeNoteParams);
+    env->DeleteLocalRef(freeNote);
+    env->DeleteLocalRef(freeNoteParams);
+    jobject freeBtn =
+        env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring freeBtnText =
+        env->NewStringUTF(decryptStr(ENC_CONTINUE_FREE, sizeof(ENC_CONTINUE_FREE)).c_str());
+    env->CallVoidMethod(freeBtn, uiClasses.setText, freeBtnText);
+    env->DeleteLocalRef(freeBtnText);
+    env->CallVoidMethod(freeBtn, uiClasses.setTextSize, 12.0f);
+    env->CallVoidMethod(freeBtn, uiClasses.setTextColor, (jint)0xFF888888);
+    env->CallVoidMethod(freeBtn, uiClasses.setTypeface, boldTf);
+    env->CallVoidMethod(freeBtn, tvSetGravity, 17); 
+    env->CallVoidMethod(freeBtn, setLayoutDir, 0);  
+    env->CallVoidMethod(freeBtn, uiClasses.setPadding, 0, 18, 0, 18);
+    jobject freeBtnBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                        uiClasses.gradientDrawableCtor);
+    env->CallVoidMethod(freeBtnBg, uiClasses.setCornerRadius, 12.0f);
+    env->CallVoidMethod(freeBtnBg, uiClasses.setColor, (jint)0xFF2A2A2A);
+    env->CallVoidMethod(freeBtnBg, uiClasses.setStroke, 2, (jint)0xFF555555);
+    env->CallVoidMethod(freeBtn, setBackground, freeBtnBg);
+    env->DeleteLocalRef(freeBtnBg);
+    env->CallVoidMethod(freeBtn, setId, 12);
+    jobject freeBtnClickListener =
+        env->NewObject(uiClasses.overlayClass,
+                       env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                        "(Landroid/content/Context;)V"),
+                       activity);
+    env->CallVoidMethod(freeBtn, setOnClickListener, freeBtnClickListener);
+    env->DeleteLocalRef(freeBtnClickListener);
+    jobject freeBtnParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->SetIntField(freeBtnParams, topMarginF, 10);
+    env->CallVoidMethod(freeBox, addView, freeBtn, freeBtnParams);
+    env->DeleteLocalRef(freeBtn);
+    env->DeleteLocalRef(freeBtnParams);
+    jobject freeBoxParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->SetIntField(freeBoxParams, topMarginF, 14);
+    env->CallVoidMethod(panel, addView, freeBox, freeBoxParams);
+    env->DeleteLocalRef(freeBox);
+    env->DeleteLocalRef(freeBoxParams);
+  }
+  jobject deviceLabel =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  std::string deviceText =
+      decryptStr(ENC_DEVICE, sizeof(ENC_DEVICE)) + g_deviceId;
+  jstring devStr = env->NewStringUTF(deviceText.c_str());
+  env->CallVoidMethod(deviceLabel, uiClasses.setText, devStr);
+  env->DeleteLocalRef(devStr);
+  env->CallVoidMethod(deviceLabel, uiClasses.setTextSize, 8.0f);
+  env->CallVoidMethod(deviceLabel, uiClasses.setTextColor, (jint)0xFF555555);
+  env->CallVoidMethod(deviceLabel, tvSetGravity, 17); 
+  env->CallVoidMethod(deviceLabel, setLayoutDir, 0);  
+  env->CallVoidMethod(deviceLabel, setId, 11); 
+  jobject devClickListener =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(deviceLabel, setOnClickListener, devClickListener);
+  env->DeleteLocalRef(devClickListener);
+  jobject devParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(devParams, topMarginF, 15);
+  env->CallVoidMethod(panel, addView, deviceLabel, devParams);
+  env->DeleteLocalRef(deviceLabel);
+  env->DeleteLocalRef(devParams);
+  jobject creditsBox = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(creditsBox, setOrientation, 1); 
+  env->CallVoidMethod(creditsBox, llSetGravity, 17);  
+  env->CallVoidMethod(creditsBox, uiClasses.setPadding, 20, 14, 20, 20);
+  jobject creditsBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                     uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(creditsBg, uiClasses.setCornerRadius, 25.0f);
+  env->CallVoidMethod(creditsBg, uiClasses.setColor, (jint)0xFF1A1A1A);
+  env->CallVoidMethod(creditsBg, uiClasses.setStroke, 4, (jint)0xFF555555);
+  env->CallVoidMethod(creditsBox, setBackground, creditsBg);
+  env->DeleteLocalRef(creditsBg);
+  jmethodID setClipChildren = env->GetMethodID(
+      linearLayoutClass, "setClipChildren", "(Z)V");
+  jmethodID setClipToPadding = env->GetMethodID(
+      linearLayoutClass, "setClipToPadding", "(Z)V");
+  env->CallVoidMethod(creditsBox, setClipChildren, (jboolean)false);
+  env->CallVoidMethod(creditsBox, setClipToPadding, (jboolean)false);
+  jobject byLabel = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring byStr = env->NewStringUTF(decryptStr(ENC_CREDITS_BY, sizeof(ENC_CREDITS_BY)).c_str());
+  env->CallVoidMethod(byLabel, uiClasses.setText, byStr);
+  env->DeleteLocalRef(byStr);
+  env->CallVoidMethod(byLabel, uiClasses.setTextSize, 10.0f);
+  env->CallVoidMethod(byLabel, uiClasses.setTextColor, (jint)0xFF666666);
+  env->CallVoidMethod(byLabel, tvSetGravity, 17); 
+  env->CallVoidMethod(byLabel, setLayoutDir, 0);
+  jobject byLabelParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->CallVoidMethod(creditsBox, addView, byLabel, byLabelParams);
+  env->DeleteLocalRef(byLabel);
+  env->DeleteLocalRef(byLabelParams);
+  jobject creditsSep = env->NewObject(viewClass, viewCtor, activity);
+  env->CallVoidMethod(creditsSep, setBgColor, (jint)0xFF333333);
+  jobject creditsSepParams = env->NewObject(llParamsClass, llParamsCtor, -1, 1);
+  env->SetIntField(creditsSepParams, topMarginF, 10);
+  env->SetIntField(creditsSepParams, bottomMarginF, 4);
+  env->CallVoidMethod(creditsBox, addView, creditsSep, creditsSepParams);
+  env->DeleteLocalRef(creditsSep);
+  env->DeleteLocalRef(creditsSepParams);
+  jobject socialRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(socialRow, setOrientation, 0); 
+  env->CallVoidMethod(socialRow, llSetGravity, 17);  
+  jobject ytBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring ytStr = env->NewStringUTF(decryptStr(ENC_CREDITS_YT, sizeof(ENC_CREDITS_YT)).c_str());
+  env->CallVoidMethod(ytBtn, uiClasses.setText, ytStr);
+  env->DeleteLocalRef(ytStr);
+  env->CallVoidMethod(ytBtn, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(ytBtn, uiClasses.setTextColor, (jint)0xFFFF4444);
+  env->CallVoidMethod(ytBtn, uiClasses.setTypeface, boldTf);
+  env->CallVoidMethod(ytBtn, tvSetGravity, 17);
+  env->CallVoidMethod(ytBtn, setLayoutDir, 0);
+  env->CallVoidMethod(ytBtn, uiClasses.setPadding, 18, 10, 18, 10);
+  jobject ytBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                 uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(ytBg, uiClasses.setCornerRadius, 6.0f);
+  env->CallVoidMethod(ytBg, uiClasses.setColor, (jint)0xFF1A1A2E);
+  env->CallVoidMethod(ytBg, uiClasses.setStroke, 1, (jint)0xFFCC0000);
+  env->CallVoidMethod(ytBtn, setBackground, ytBg);
+  env->DeleteLocalRef(ytBg);
+  env->CallVoidMethod(ytBtn, setId, 20); 
+  jobject ytClickListener =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(ytBtn, setOnClickListener, ytClickListener);
+  env->DeleteLocalRef(ytClickListener);
+  jobject ytParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->SetIntField(ytParams, topMarginF, 8);
+  env->CallVoidMethod(socialRow, addView, ytBtn, ytParams);
+  env->DeleteLocalRef(ytBtn);
+  env->DeleteLocalRef(ytParams);
+  jobject spacer = env->NewObject(viewClass, viewCtor, activity);
+  jobject spacerParams = env->NewObject(llParamsClass, llParamsCtor, 12, 1);
+  env->CallVoidMethod(socialRow, addView, spacer, spacerParams);
+  env->DeleteLocalRef(spacer);
+  env->DeleteLocalRef(spacerParams);
+  jobject tgBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring tgStr = env->NewStringUTF(decryptStr(ENC_CREDITS_TG, sizeof(ENC_CREDITS_TG)).c_str());
+  env->CallVoidMethod(tgBtn, uiClasses.setText, tgStr);
+  env->DeleteLocalRef(tgStr);
+  env->CallVoidMethod(tgBtn, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(tgBtn, uiClasses.setTextColor, (jint)0xFF2196F3);
+  env->CallVoidMethod(tgBtn, uiClasses.setTypeface, boldTf);
+  env->CallVoidMethod(tgBtn, tvSetGravity, 17);
+  env->CallVoidMethod(tgBtn, setLayoutDir, 0);
+  env->CallVoidMethod(tgBtn, uiClasses.setPadding, 18, 10, 18, 10);
+  jobject tgBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                 uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(tgBg, uiClasses.setCornerRadius, 6.0f);
+  env->CallVoidMethod(tgBg, uiClasses.setColor, (jint)0xFF0D1F3A);
+  env->CallVoidMethod(tgBg, uiClasses.setStroke, 1, (jint)0xFF1565C0);
+  env->CallVoidMethod(tgBtn, setBackground, tgBg);
+  env->DeleteLocalRef(tgBg);
+  env->CallVoidMethod(tgBtn, setId, 21); 
+  jobject tgClickListener =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(tgBtn, setOnClickListener, tgClickListener);
+  env->DeleteLocalRef(tgClickListener);
+  jobject tgParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->SetIntField(tgParams, topMarginF, 8);
+  env->CallVoidMethod(socialRow, addView, tgBtn, tgParams);
+  env->DeleteLocalRef(tgBtn);
+  env->DeleteLocalRef(tgParams);
+  jobject socialRowParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(creditsBox, addView, socialRow, socialRowParams);
+  env->DeleteLocalRef(socialRow);
+  env->DeleteLocalRef(socialRowParams);
+  jobject outerLayout = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(outerLayout, setOrientation, 1); 
+  env->CallVoidMethod(outerLayout, llSetGravity, 1);   
+  jobject panelInnerParams = env->NewObject(llParamsClass, llParamsCtor, 650, -2);
+  env->CallVoidMethod(outerLayout, addView, panel, panelInnerParams);
+  env->DeleteLocalRef(panel);
+  env->DeleteLocalRef(panelInnerParams);
+  jobject creditsOuterParams = env->NewObject(llParamsClass, llParamsCtor, 650, -2);
+  env->SetIntField(creditsOuterParams, topMarginF, 14);
+  env->CallVoidMethod(outerLayout, addView, creditsBox, creditsOuterParams);
+  env->DeleteLocalRef(creditsBox);
+  env->DeleteLocalRef(creditsOuterParams);
+  jclass flParamsClass =
+      env->FindClass("android/widget/FrameLayout$LayoutParams");
+  jmethodID flParamsCtor = env->GetMethodID(flParamsClass, "<init>", "(III)V");
+  jobject outerParams =
+      env->NewObject(flParamsClass, flParamsCtor, -2, -2, 17);
+  jmethodID flAddView = env->GetMethodID(
+      frameLayoutClass, "addView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  env->CallVoidMethod(frame, flAddView, outerLayout, outerParams);
+  env->DeleteLocalRef(outerLayout);
+  env->DeleteLocalRef(outerParams);
+  jclass flParamsClass2 =
+      env->FindClass("android/widget/FrameLayout$LayoutParams");
+  jmethodID flParamsCtor2 = env->GetMethodID(flParamsClass2, "<init>", "(II)V");
+  jobject frameParams = env->NewObject(flParamsClass2, flParamsCtor2, -1, -1);
+  jclass activityClass = env->FindClass("android/app/Activity");
+  jmethodID addContentView = env->GetMethodID(
+      activityClass, "addContentView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  env->CallVoidMethod(activity, addContentView, frame, frameParams);
+  g_loginContainer = env->NewGlobalRef(frame);
+  env->DeleteLocalRef(frame);
+  env->DeleteLocalRef(frameParams);
+  env->DeleteLocalRef(viewClass);
+  env->DeleteLocalRef(linearLayoutClass);
+  env->DeleteLocalRef(frameLayoutClass);
+  env->DeleteLocalRef(editTextClass);
+  env->DeleteLocalRef(llParamsClass);
+  env->DeleteLocalRef(lengthFilterClass);
+  env->DeleteLocalRef(inputFilterClass);
+  env->DeleteLocalRef(typefaceClass);
+  env->DeleteLocalRef(flParamsClass);
+  env->DeleteLocalRef(flParamsClass2);
+  env->DeleteLocalRef(activityClass);
+}
+static std::string readTextViewString(JNIEnv *env, jobject textView) {
+  jclass tvClass = env->FindClass("android/widget/TextView");
+  jmethodID getText =
+      env->GetMethodID(tvClass, "getText", "()Ljava/lang/CharSequence;");
+  jobject charSeq = env->CallObjectMethod(textView, getText);
+  if (!charSeq) {
+    env->DeleteLocalRef(tvClass);
+    return "";
+  }
+  jmethodID toString = env->GetMethodID(env->GetObjectClass(charSeq),
+                                        "toString", "()Ljava/lang/String;");
+  auto str = (jstring)env->CallObjectMethod(charSeq, toString);
+  const char *cstr = env->GetStringUTFChars(str, nullptr);
+  std::string result = cstr;
+  env->ReleaseStringUTFChars(str, cstr);
+  env->DeleteLocalRef(str);
+  env->DeleteLocalRef(charSeq);
+  env->DeleteLocalRef(tvClass);
+  return result;
+}
+static int g_failedAttempts = 0;
+static time_t g_lastFailTime = 0;
+static void showToast(JNIEnv *env, const char *text) {
+  jclass toastClass = env->FindClass("android/widget/Toast");
+  jmethodID makeText = env->GetStaticMethodID(
+      toastClass, "makeText",
+      "(Landroid/content/Context;Ljava/lang/CharSequence;I)"
+      "Landroid/widget/Toast;");
+  jstring msg = env->NewStringUTF(text);
+  jobject toast =
+      env->CallStaticObjectMethod(toastClass, makeText, g_activity, msg, 0);
+  jmethodID show = env->GetMethodID(toastClass, "show", "()V");
+  env->CallVoidMethod(toast, show);
+  env->DeleteLocalRef(msg);
+  env->DeleteLocalRef(toast);
+  env->DeleteLocalRef(toastClass);
+}
+static jlong readLastKnownTime(JNIEnv *env) {
+  jclass ctxClass = env->FindClass("android/content/Context");
+  jmethodID getSP = env->GetMethodID(
+      ctxClass, "getSharedPreferences",
+      "(Ljava/lang/String;I)Landroid/content/SharedPreferences;");
+  jstring name =
+      env->NewStringUTF(decryptStr(ENC_PREFS, sizeof(ENC_PREFS)).c_str());
+  jobject prefs = env->CallObjectMethod(g_activity, getSP, name, 0);
+  jclass spClass = env->FindClass("android/content/SharedPreferences");
+  jmethodID getLong =
+      env->GetMethodID(spClass, "getLong", "(Ljava/lang/String;J)J");
+  jstring key =
+      env->NewStringUTF(decryptStr(ENC_KEY_LT, sizeof(ENC_KEY_LT)).c_str());
+  jlong val = env->CallLongMethod(prefs, getLong, key, (jlong)0);
+  env->DeleteLocalRef(key);
+  env->DeleteLocalRef(prefs);
+  env->DeleteLocalRef(name);
+  env->DeleteLocalRef(spClass);
+  env->DeleteLocalRef(ctxClass);
+  return val;
+}
+static void saveLastKnownTime(JNIEnv *env, jlong timeVal) {
+  jclass ctxClass = env->FindClass("android/content/Context");
+  jmethodID getSP = env->GetMethodID(
+      ctxClass, "getSharedPreferences",
+      "(Ljava/lang/String;I)Landroid/content/SharedPreferences;");
+  jstring name =
+      env->NewStringUTF(decryptStr(ENC_PREFS, sizeof(ENC_PREFS)).c_str());
+  jobject prefs = env->CallObjectMethod(g_activity, getSP, name, 0);
+  jclass spClass = env->FindClass("android/content/SharedPreferences");
+  jmethodID edit = env->GetMethodID(
+      spClass, "edit", "()Landroid/content/SharedPreferences$Editor;");
+  jobject editor = env->CallObjectMethod(prefs, edit);
+  jclass edClass = env->FindClass("android/content/SharedPreferences$Editor");
+  jmethodID putLong = env->GetMethodID(
+      edClass, "putLong",
+      "(Ljava/lang/String;J)Landroid/content/SharedPreferences$Editor;");
+  jmethodID apply = env->GetMethodID(edClass, "apply", "()V");
+  jstring key =
+      env->NewStringUTF(decryptStr(ENC_KEY_LT, sizeof(ENC_KEY_LT)).c_str());
+  env->CallObjectMethod(editor, putLong, key, timeVal);
+  env->CallVoidMethod(editor, apply);
+  env->DeleteLocalRef(key);
+  env->DeleteLocalRef(editor);
+  env->DeleteLocalRef(edClass);
+  env->DeleteLocalRef(prefs);
+  env->DeleteLocalRef(name);
+  env->DeleteLocalRef(spClass);
+  env->DeleteLocalRef(ctxClass);
+}
+static void saveKeyToPrefs(JNIEnv *env, const std::string &keyStr) {
+  jclass ctxClass = env->FindClass("android/content/Context");
+  jmethodID getSP = env->GetMethodID(
+      ctxClass, "getSharedPreferences",
+      "(Ljava/lang/String;I)Landroid/content/SharedPreferences;");
+  jstring name =
+      env->NewStringUTF(decryptStr(ENC_PREFS, sizeof(ENC_PREFS)).c_str());
+  jobject prefs = env->CallObjectMethod(g_activity, getSP, name, 0);
+  jclass spClass = env->FindClass("android/content/SharedPreferences");
+  jmethodID edit = env->GetMethodID(
+      spClass, "edit", "()Landroid/content/SharedPreferences$Editor;");
+  jobject editor = env->CallObjectMethod(prefs, edit);
+  jclass edClass = env->FindClass("android/content/SharedPreferences$Editor");
+  jmethodID putString =
+      env->GetMethodID(edClass, "putString",
+                       "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/"
+                       "SharedPreferences$Editor;");
+  jmethodID apply = env->GetMethodID(edClass, "apply", "()V");
+  jstring key =
+      env->NewStringUTF(decryptStr(ENC_KEY_LK, sizeof(ENC_KEY_LK)).c_str());
+  jstring val = env->NewStringUTF(keyStr.c_str());
+  env->CallObjectMethod(editor, putString, key, val);
+  env->CallVoidMethod(editor, apply);
+  env->DeleteLocalRef(val);
+  env->DeleteLocalRef(key);
+  env->DeleteLocalRef(editor);
+  env->DeleteLocalRef(edClass);
+  env->DeleteLocalRef(prefs);
+  env->DeleteLocalRef(name);
+  env->DeleteLocalRef(spClass);
+  env->DeleteLocalRef(ctxClass);
+}
+static std::string loadKeyFromPrefs(JNIEnv *env) {
+  jclass ctxClass = env->FindClass("android/content/Context");
+  jmethodID getSP = env->GetMethodID(
+      ctxClass, "getSharedPreferences",
+      "(Ljava/lang/String;I)Landroid/content/SharedPreferences;");
+  jstring name =
+      env->NewStringUTF(decryptStr(ENC_PREFS, sizeof(ENC_PREFS)).c_str());
+  jobject prefs = env->CallObjectMethod(g_activity, getSP, name, 0);
+  jclass spClass = env->FindClass("android/content/SharedPreferences");
+  jmethodID getString = env->GetMethodID(
+      spClass, "getString",
+      "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+  jstring key =
+      env->NewStringUTF(decryptStr(ENC_KEY_LK, sizeof(ENC_KEY_LK)).c_str());
+  jstring defVal = env->NewStringUTF("");
+  auto result = (jstring)env->CallObjectMethod(prefs, getString, key, defVal);
+  std::string savedKey;
+  if (result) {
+    const char *cstr = env->GetStringUTFChars(result, nullptr);
+    savedKey = cstr;
+    env->ReleaseStringUTFChars(result, cstr);
+    env->DeleteLocalRef(result);
+  }
+  env->DeleteLocalRef(defVal);
+  env->DeleteLocalRef(key);
+  env->DeleteLocalRef(prefs);
+  env->DeleteLocalRef(name);
+  env->DeleteLocalRef(spClass);
+  env->DeleteLocalRef(ctxClass);
+  return savedKey;
+}
+static void clearSavedKey(JNIEnv *env) {
+  jclass ctxClass = env->FindClass("android/content/Context");
+  jmethodID getSP = env->GetMethodID(
+      ctxClass, "getSharedPreferences",
+      "(Ljava/lang/String;I)Landroid/content/SharedPreferences;");
+  jstring name =
+      env->NewStringUTF(decryptStr(ENC_PREFS, sizeof(ENC_PREFS)).c_str());
+  jobject prefs = env->CallObjectMethod(g_activity, getSP, name, 0);
+  jclass spClass = env->FindClass("android/content/SharedPreferences");
+  jmethodID edit = env->GetMethodID(
+      spClass, "edit", "()Landroid/content/SharedPreferences$Editor;");
+  jobject editor = env->CallObjectMethod(prefs, edit);
+  jclass edClass = env->FindClass("android/content/SharedPreferences$Editor");
+  jmethodID remove = env->GetMethodID(
+      edClass, "remove",
+      "(Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;");
+  jmethodID apply = env->GetMethodID(edClass, "apply", "()V");
+  jstring key =
+      env->NewStringUTF(decryptStr(ENC_KEY_LK, sizeof(ENC_KEY_LK)).c_str());
+  env->CallObjectMethod(editor, remove, key);
+  env->CallVoidMethod(editor, apply);
+  env->DeleteLocalRef(key);
+  env->DeleteLocalRef(editor);
+  env->DeleteLocalRef(edClass);
+  env->DeleteLocalRef(prefs);
+  env->DeleteLocalRef(name);
+  env->DeleteLocalRef(spClass);
+  env->DeleteLocalRef(ctxClass);
+}
+static time_t getDeviceUptime() {
+  struct timespec ts;
+  clock_gettime(CLOCK_BOOTTIME, &ts);
+  return ts.tv_sec;
+}
+static time_t getNtpTime() {
+  const uint8_t *ipEnc[] = {ENC_NTP_IP1, ENC_NTP_IP2};
+  const int ipLen[] = {(int)sizeof(ENC_NTP_IP1), (int)sizeof(ENC_NTP_IP2)};
+  const int numServers = 2;
+  for (int s = 0; s < numServers; s++) {
+    std::string ipStr = decryptStr(ipEnc[s], ipLen[s]);
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock < 0) continue;
+    struct timeval tv;
+    tv.tv_sec = 3;
+    tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(123);
+    if (inet_pton(AF_INET, ipStr.c_str(), &addr.sin_addr) != 1) {
+      close(sock);
+      continue;
+    }
+    uint8_t pkt[48];
+    memset(pkt, 0, sizeof(pkt));
+    pkt[0] = 0x1B;
+    if (sendto(sock, pkt, 48, 0, (struct sockaddr *)&addr, sizeof(addr)) < 48) {
+      close(sock);
+      continue;
+    }
+    socklen_t addrLen = sizeof(addr);
+    ssize_t received = recvfrom(sock, pkt, 48, 0, (struct sockaddr *)&addr, &addrLen);
+    close(sock);
+    if (received < 48) continue;
+    uint32_t secs = ((uint32_t)pkt[40] << 24) | ((uint32_t)pkt[41] << 16)
+                  | ((uint32_t)pkt[42] << 8)  | (uint32_t)pkt[43];
+    if (secs == 0) continue;
+    time_t unixTime = (time_t)(secs - 2208988800UL);
+    if (unixTime > KEY_EPOCH) {
+      return unixTime;
+    }
+  }
+  return 0; 
+}
+static time_t getCachedNtpTime() {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  uint64_t nowMs = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+  if (g_lastNtpTime == 0 || nowMs - g_lastNtpFetchMs >= NTP_CACHE_MS) {
+    time_t ntp = getNtpTime();
+    if (ntp > 0) {
+      g_lastNtpTime = ntp;
+    }
+    g_lastNtpFetchMs = nowMs; 
+  }
+  return g_lastNtpTime;
+}
+static const uint64_t TIME_XOR_KEY = 0xDEADBEEFCAFEBABEULL;
+static jlong  encodeTime(time_t t) { return (jlong)((uint64_t)t ^ TIME_XOR_KEY); }
+static time_t decodeTime(jlong  v) { return (time_t)((uint64_t)v ^ TIME_XOR_KEY); }
+static void cacheFilesDir(JNIEnv *env) {
+  if (!g_filesDir.empty() || !g_activity) return;
+  jclass ctxClass   = env->FindClass("android/content/Context");
+  jmethodID getFD   = env->GetMethodID(ctxClass, "getFilesDir", "()Ljava/io/File;");
+  jobject dirObj    = env->CallObjectMethod(g_activity, getFD);
+  jclass fileClass  = env->FindClass("java/io/File");
+  jmethodID getPath = env->GetMethodID(fileClass, "getAbsolutePath", "()Ljava/lang/String;");
+  auto jpath        = (jstring)env->CallObjectMethod(dirObj, getPath);
+  const char *cpath = env->GetStringUTFChars(jpath, nullptr);
+  g_filesDir = std::string(cpath) + decryptStr(ENC_TSVAULT, sizeof(ENC_TSVAULT));
+  env->ReleaseStringUTFChars(jpath, cpath);
+  env->DeleteLocalRef(jpath);
+  env->DeleteLocalRef(dirObj);
+  env->DeleteLocalRef(fileClass);
+  env->DeleteLocalRef(ctxClass);
+}
+static void saveTimeVault(time_t wall, time_t uptime) {
+  if (g_filesDir.empty()) return;
+  time_t buf[2] = {wall, uptime};
+  FILE *f = fopen(g_filesDir.c_str(), "wb");
+  if (f) { fwrite(buf, sizeof(time_t), 2, f); fclose(f); }
+}
+static void readTimeVault(time_t *wallOut, time_t *uptimeOut) {
+  *wallOut = 0; *uptimeOut = 0;
+  if (g_filesDir.empty()) return;
+  time_t buf[2] = {0, 0};
+  FILE *f = fopen(g_filesDir.c_str(), "rb");
+  if (f) { fread(buf, sizeof(time_t), 2, f); fclose(f); }
+  *wallOut   = buf[0];
+  *uptimeOut = buf[1];
+}
+static jlong getAppInstallTime(JNIEnv *env) {
+  if (!g_activity) return 0;
+  jclass ctxClass  = env->FindClass("android/content/Context");
+  jmethodID getPM  = env->GetMethodID(ctxClass, "getPackageManager",
+                                       "()Landroid/content/pm/PackageManager;");
+  jmethodID getPKN = env->GetMethodID(ctxClass, "getPackageName",
+                                       "()Ljava/lang/String;");
+  jobject  pm      = env->CallObjectMethod(g_activity, getPM);
+  auto pkgName     = (jstring)env->CallObjectMethod(g_activity, getPKN);
+  jclass pmClass   = env->FindClass("android/content/pm/PackageManager");
+  jmethodID getPI  = env->GetMethodID(pmClass, "getPackageInfo",
+                                       "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;");
+  jobject pi       = env->CallObjectMethod(pm, getPI, pkgName, 0);
+  jlong installMs  = 0;
+  if (pi) {
+    jclass piClass       = env->FindClass("android/content/pm/PackageInfo");
+    jfieldID fitField    = env->GetFieldID(piClass, "firstInstallTime", "J");
+    installMs            = env->GetLongField(pi, fitField);
+    env->DeleteLocalRef(piClass);
+    env->DeleteLocalRef(pi);
+  }
+  env->DeleteLocalRef(pmClass);
+  env->DeleteLocalRef(pkgName);
+  env->DeleteLocalRef(pm);
+  env->DeleteLocalRef(ctxClass);
+  return installMs; 
+}
+static void saveAllTimestamps(JNIEnv *env) {
+  time_t wallNow = time(NULL);
+  time_t upNow   = getDeviceUptime();
+  saveLastKnownTime(env, encodeTime(wallNow)); 
+  cacheFilesDir(env);
+  saveTimeVault(wallNow, upNow);               
+}
+static bool isTimeTampered(JNIEnv *env) {
+  time_t wallNow = time(NULL);
+  time_t upNow   = getDeviceUptime();
+  const time_t MIN_SANE = KEY_EPOCH;
+  const time_t MAX_SANE = KEY_EPOCH + (time_t)10 * 365 * 86400;
+  jlong rawStored = readLastKnownTime(env);
+  if (rawStored != 0) {
+    time_t lastWall = decodeTime(rawStored);
+    if (lastWall >= MIN_SANE && lastWall <= MAX_SANE) {
+      if (wallNow < lastWall - 3600)
+        return true; 
+    }
+  }
+  cacheFilesDir(env);
+  time_t fileWall = 0, fileUp = 0;
+  readTimeVault(&fileWall, &fileUp);
+  if (fileWall >= MIN_SANE && fileWall <= MAX_SANE) {
+    if (wallNow < fileWall - 3600)
+      return true; 
+    if (fileUp > 0 && upNow > fileUp) {
+      long uptimeDelta = (long)(upNow   - fileUp);
+      long wallDelta   = (long)(wallNow - fileWall);
+      if (wallDelta < uptimeDelta - 7200)
+        return true;
+    }
+  }
+  jlong installMs = getAppInstallTime(env);
+  if (installMs > 0) {
+    time_t installSec = (time_t)(installMs / 1000LL);
+    if (wallNow < installSec - 3600)
+      return true;
+  }
+  time_t ntpNow = getCachedNtpTime();
+  if (ntpNow > 0) {
+    if (wallNow < ntpNow - 3600)
+      return true; 
+  }
+  return false;
+}
+static void JNICALL nativeOnSeekBarChanged(JNIEnv *env,
+                                           [[maybe_unused]] jclass clazz,
+                                           jint progress) {
+  if (g_freeMode) return;
+  if (isSpinSearchOwningCue()) {
+    if (g_previewPowerSeekBar) {
+      jclass sbClass = env->FindClass("android/widget/SeekBar");
+      jmethodID setProg = env->GetMethodID(sbClass, "setProgress", "(I)V");
+      env->CallVoidMethod(g_previewPowerSeekBar, setProg,
+                          (jint)(previewPowerPct * 10.0f));
+      env->DeleteLocalRef(sbClass);
+    }
+    return;
+  }
+  float newPct = progress / 10.0f;
+  if (newPct < 0.1f) newPct = 0.1f;
+  if (newPct > 100.0f) newPct = 100.0f;
+  float diff = fabsf(newPct - previewPowerPct);
+  if (diff > 5.0f) {
+    if (g_previewPowerSeekBar) {
+      jclass sbClass = env->FindClass("android/widget/SeekBar");
+      jmethodID setProg = env->GetMethodID(sbClass, "setProgress", "(I)V");
+      env->CallVoidMethod(g_previewPowerSeekBar, setProg,
+                          (jint)(previewPowerPct * 10.0f));
+      env->DeleteLocalRef(sbClass);
+    }
+    return;
+  }
+  previewPowerPct = newPct;
+  g_refreshPreview.store(true); 
+  char msg[32];
+  std::string pFmt = decryptStr(ENC_FMT_PREVPOW, sizeof(ENC_FMT_PREVPOW)) + "%.1f%%";
+  snprintf(msg, sizeof(msg), pFmt.c_str(), (double)previewPowerPct);
+  updateTextView(env, previewPowerTextView, msg);
+}
+static void JNICALL nativeOnButtonClick(JNIEnv *env,
+                                        [[maybe_unused]] jclass clazz,
+                                        jint id) {
+  jclass viewClass = env->FindClass("android/view/View");
+  jmethodID setVisibility =
+      env->GetMethodID(viewClass, "setVisibility", "(I)V");
+  if (id == 10 && g_loginContainer && !g_keyValidated) {
+    if (g_failedAttempts > 0) {
+      int delay = 1 << std::min(g_failedAttempts - 1, 4); 
+      time_t elapsed = time(NULL) - g_lastFailTime;
+      if (elapsed < delay) {
+        char buf[48];
+        snprintf(buf, sizeof(buf),
+                 decryptStr(ENC_WAIT, sizeof(ENC_WAIT)).c_str(),
+                 (int)(delay - elapsed));
+        showToast(env, buf);
+        env->DeleteLocalRef(viewClass);
+        return;
+      }
+    }
+    std::string k1 = readTextViewString(env, g_keyField1);
+    std::string k2 = readTextViewString(env, g_keyField2);
+    std::string k3 = readTextViewString(env, g_keyField3);
+    std::string k4 = readTextViewString(env, g_keyField4);
+    if (k1.length() > 4) {
+      std::string clean;
+      for (char c : k1) {
+        if (c != '-' && c != ' ')
+          clean += (char)toupper((unsigned char)c);
+      }
+      if (clean.length() >= 16) {
+        k1 = clean.substr(0, 4);
+        k2 = clean.substr(4, 4);
+        k3 = clean.substr(8, 4);
+        k4 = clean.substr(12, 4);
+        auto setField = [&](jobject field, const std::string &val) {
+          jstring s = env->NewStringUTF(val.c_str());
+          env->CallVoidMethod(field, uiClasses.setText, s);
+          env->DeleteLocalRef(s);
+        };
+        setField(g_keyField1, k1);
+        setField(g_keyField2, k2);
+        setField(g_keyField3, k3);
+        setField(g_keyField4, k4);
+      }
+    }
+    std::string decoyKey = k1 + "-" + k2 + "-" + k3 + "-" + k4;
+    if (k1.empty() && k2.empty() && k3.empty() && k4.empty()) {
+      showToast(env, decryptStr(ENC_EMPTY, sizeof(ENC_EMPTY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    {
+      std::string clean;
+      for (char c : decoyKey) {
+        if (c != '-') clean += (char)toupper((unsigned char)c);
+      }
+      if (clean.length() != 16) {
+        showToast(env, decryptStr(ENC_INVALID, sizeof(ENC_INVALID)).c_str());
+        env->DeleteLocalRef(viewClass);
+        return;
+      }
+      std::string decoySalt = decryptStr(ENC_DECOY_SALT, sizeof(ENC_DECOY_SALT));
+      uint32_t h = 0x811c9dc5u;
+      for (int i = 0; i < 12; i++) {
+        h ^= (uint8_t)clean[i];
+        h *= 0x01000193u;
+      }
+      for (size_t i = 0; i < decoySalt.length(); i++) {
+        h ^= (uint8_t)decoySalt[i];
+        h *= 0x01000193u;
+      }
+      h ^= h >> 16;
+      h *= 0x45d9f3bu;
+      h ^= h >> 16;
+      char expected[5];
+      encodeBase36(h % 1679616u, expected, 4);
+      std::string slot4 = clean.substr(12, 4);
+      if (slot4 != std::string(expected)) {
+        g_failedAttempts++;
+        g_lastFailTime = time(NULL);
+        showToast(env, decryptStr(ENC_INVALID, sizeof(ENC_INVALID)).c_str());
+        env->DeleteLocalRef(viewClass);
+        return;
+      }
+    }
+    std::string localRealKey, localPublicKey;
+    {
+      std::lock_guard<std::mutex> cfgLock(g_remoteCfgMutex);
+      localRealKey = g_realKeyFromRemote;
+      localPublicKey = g_publicKeyFromRemote;
+    }
+    if (localRealKey.empty()) {
+      std::thread rcThread([]() {
+        JNIEnv *tEnv = nullptr;
+        bool attached = false;
+        if (javaVM->GetEnv((void **)&tEnv, JNI_VERSION_1_6) != JNI_OK) {
+          if (javaVM->AttachCurrentThread(&tEnv, nullptr) == JNI_OK)
+            attached = true;
+          else
+            return;
+        }
+        fetchRemoteConfig(tEnv);
+        if (attached) javaVM->DetachCurrentThread();
+      });
+      rcThread.join();
+      {
+        std::lock_guard<std::mutex> cfgLock(g_remoteCfgMutex);
+        localRealKey = g_realKeyFromRemote;
+        localPublicKey = g_publicKeyFromRemote;
+      }
+      if (localRealKey.empty()) {
+        showToast(env, decryptStr(ENC_ACTIVATING, sizeof(ENC_ACTIVATING)).c_str());
+        env->DeleteLocalRef(viewClass);
+        return;
+      }
+    }
+    bool isPublicKey = (!localPublicKey.empty() &&
+                        localRealKey == localPublicKey);
+    int keyResult = validateKey(localRealKey, isPublicKey);
+    if (keyResult == 1) {
+      if (isTimeTampered(env)) {
+        keyResult = 3; 
+      } else {
+        saveAllTimestamps(env); 
+      }
+    }
+    if (keyResult != 1) {
+      g_failedAttempts++;
+      g_lastFailTime = time(NULL);
+      std::string errMsgStr;
+      switch (keyResult) {
+      case 2:
+        errMsgStr = decryptStr(ENC_EXPIRED, sizeof(ENC_EXPIRED));
+        break;
+      case 3:
+        errMsgStr = decryptStr(ENC_CLOCK, sizeof(ENC_CLOCK));
+        break;
+      default:
+        errMsgStr = decryptStr(ENC_INVALID, sizeof(ENC_INVALID));
+        break;
+      }
+      showToast(env, errMsgStr.c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    g_failedAttempts = 0; 
+    g_keyValidated = true;
+    assembleRvaSeed(); 
+    saveKeyToPrefs(env, localRealKey);
+    saveAllTimestamps(env);
+    jmethodID getParent =
+        env->GetMethodID(viewClass, "getParent", "()Landroid/view/ViewParent;");
+    jclass vgClass = env->FindClass("android/view/ViewGroup");
+    jmethodID removeView =
+        env->GetMethodID(vgClass, "removeView", "(Landroid/view/View;)V");
+    jobject parent = env->CallObjectMethod(g_loginContainer, getParent);
+    if (parent) {
+      env->CallVoidMethod(parent, removeView, g_loginContainer);
+      env->DeleteLocalRef(parent);
+    }
+    env->DeleteLocalRef(vgClass);
+    env->DeleteGlobalRef(g_loginContainer);
+    env->DeleteGlobalRef(g_keyField1);
+    env->DeleteGlobalRef(g_keyField2);
+    env->DeleteGlobalRef(g_keyField3);
+    env->DeleteGlobalRef(g_keyField4);
+    g_loginContainer = g_keyField1 = g_keyField2 = g_keyField3 = g_keyField4 =
+        nullptr;
+    startTrainer(env, g_activity);
+    startTimerCountdown();
+  } else if (id == 1 && contentContainer && dashButton) {
+    isCollapsed = !isCollapsed;
+    int vis = isCollapsed ? 8 : 0; 
+    env->CallVoidMethod(contentContainer, setVisibility, vis);
+    if (separatorView)
+      env->CallVoidMethod(separatorView, setVisibility, vis);
+    if (g_timerTextView)
+      env->CallVoidMethod(g_timerTextView, setVisibility, vis);
+    jstring label = env->NewStringUTF(
+        isCollapsed ? decryptStr(ENC_PLUS, sizeof(ENC_PLUS)).c_str()
+                    : decryptStr(ENC_DASH, sizeof(ENC_DASH)).c_str());
+    env->CallVoidMethod(dashButton, uiClasses.setText, label);
+    env->DeleteLocalRef(label);
+  } else if (id == 4) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (g_remoteCfgFetched && !g_remoteCfgPoolAllowed) {
+      std::string msg = decryptStr(ENC_RC_POOL_DENIED, sizeof(ENC_RC_POOL_DENIED));
+      showToast(env, msg.c_str());
+      return;
+    }
+    g_predictionLinesEnabled = !g_predictionLinesEnabled;
+    if (g_predictionLinesEnabled) {
+      g_extendedLinesEnabled = false;
+      g_shootitPredEnabled = false;
+      g_previewLineEnabled = false;
+      g_lastFreeDirX = -999.0f; g_lastFreeDirZ = -999.0f; 
+      if (g_extendedLinesToggle) {
+        jstring off = env->NewStringUTF("OFF");
+        env->CallVoidMethod(g_extendedLinesToggle, uiClasses.setText, off);
+        env->DeleteLocalRef(off);
+        env->CallVoidMethod(g_extendedLinesToggle, uiClasses.setTextColor, (jint)0xFF888888);
+        jobject bg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+        env->CallVoidMethod(bg, uiClasses.setCornerRadius, 10.0f);
+        env->CallVoidMethod(bg, uiClasses.setColor, (jint)0xFF1A1A1A);
+        env->CallVoidMethod(bg, uiClasses.setStroke, 2, (jint)0xFF888888);
+        env->CallVoidMethod(g_extendedLinesToggle, uiClasses.setBackground, bg);
+        env->DeleteLocalRef(bg);
+      }
+      if (g_shootitPredToggle) {
+        jstring off = env->NewStringUTF("OFF");
+        env->CallVoidMethod(g_shootitPredToggle, uiClasses.setText, off);
+        env->DeleteLocalRef(off);
+        env->CallVoidMethod(g_shootitPredToggle, uiClasses.setTextColor, (jint)0xFF888888);
+        jobject bg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+        env->CallVoidMethod(bg, uiClasses.setCornerRadius, 10.0f);
+        env->CallVoidMethod(bg, uiClasses.setColor, (jint)0xFF1A1A1A);
+        env->CallVoidMethod(bg, uiClasses.setStroke, 2, (jint)0xFF888888);
+        env->CallVoidMethod(g_shootitPredToggle, uiClasses.setBackground, bg);
+        env->DeleteLocalRef(bg);
+      }
+      if (g_previewToggleView) {
+        jstring off = env->NewStringUTF("OFF");
+        env->CallVoidMethod(g_previewToggleView, uiClasses.setText, off);
+        env->DeleteLocalRef(off);
+        env->CallVoidMethod(g_previewToggleView, uiClasses.setTextColor, (jint)0xFF888888);
+        jobject bg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+        env->CallVoidMethod(bg, uiClasses.setCornerRadius, 10.0f);
+        env->CallVoidMethod(bg, uiClasses.setColor, (jint)0xFF1A1A1A);
+        env->CallVoidMethod(bg, uiClasses.setStroke, 2, (jint)0xFF888888);
+        env->CallVoidMethod(g_previewToggleView, uiClasses.setBackground, bg);
+        env->DeleteLocalRef(bg);
+      }
+    }
+    if (g_predToggleView) {
+      const char *label = getLabel(g_predictionLinesEnabled);
+      jstring s = env->NewStringUTF(label);
+      env->CallVoidMethod(g_predToggleView, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      jint col = g_predictionLinesEnabled ? (jint)0xFF00FF00 : (jint)0xFF888888;
+      env->CallVoidMethod(g_predToggleView, uiClasses.setTextColor, col);
+      jobject newBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                     uiClasses.gradientDrawableCtor);
+      env->CallVoidMethod(newBg, uiClasses.setCornerRadius, 10.0f);
+      env->CallVoidMethod(newBg, uiClasses.setColor, (jint)0xFF1A1A1A);
+      env->CallVoidMethod(newBg, uiClasses.setStroke, 2, col);
+      env->CallVoidMethod(g_predToggleView, uiClasses.setBackground, newBg);
+      env->DeleteLocalRef(newBg);
+    }
+    if (!g_predictionLinesEnabled && overlayView) {
+      jfloatArray emptyArr = env->NewFloatArray(0);
+      env->CallVoidMethod(overlayView, uiClasses.updateMultiPointsMethod,
+                          emptyArr);
+      env->DeleteLocalRef(emptyArr);
+    }
+  } else if (id == 5) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (g_remoteCfgFetched && !g_remoteCfgPoolAllowed) {
+      showToast(env, decryptStr(ENC_RC_POOL_DENIED, sizeof(ENC_RC_POOL_DENIED)).c_str());
+      return;
+    }
+    g_previewLineEnabled = !g_previewLineEnabled;
+    if (g_previewToggleView) {
+      const char *label = getLabel(g_previewLineEnabled);
+      jstring s = env->NewStringUTF(label);
+      env->CallVoidMethod(g_previewToggleView, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      jint col = g_previewLineEnabled ? (jint)0xFF00FF00 : (jint)0xFF888888;
+      env->CallVoidMethod(g_previewToggleView, uiClasses.setTextColor, col);
+      jobject newBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                     uiClasses.gradientDrawableCtor);
+      env->CallVoidMethod(newBg, uiClasses.setCornerRadius, 10.0f);
+      env->CallVoidMethod(newBg, uiClasses.setColor, (jint)0xFF1A1A1A);
+      env->CallVoidMethod(newBg, uiClasses.setStroke, 2, col);
+      env->CallVoidMethod(g_previewToggleView, uiClasses.setBackground, newBg);
+      env->DeleteLocalRef(newBg);
+    }
+    if (!g_previewLineEnabled && overlayView) {
+      jfloatArray emptyArr = env->NewFloatArray(0);
+      env->CallVoidMethod(overlayView, uiClasses.updateMultiPointsMethod,
+                          emptyArr);
+      env->DeleteLocalRef(emptyArr);
+    }
+  } else if (id == 2 || id == 3) {
+    lineAlphaPct += (id == 3) ? 5 : -5;
+    if (lineAlphaPct < 5)
+      lineAlphaPct = 5;
+    if (lineAlphaPct > 100)
+      lineAlphaPct = 100;
+    lineAlpha = (lineAlphaPct * 255) / 100;
+    char msg[32];
+    std::string tFmt = decryptStr(ENC_FMT_TRANSP, sizeof(ENC_FMT_TRANSP)) + "%d%%";
+    snprintf(msg, sizeof(msg), tFmt.c_str(), lineAlphaPct);
+    updateTextView(env, alphaTextView, msg);
+    if (overlayView) {
+      jmethodID postInvalidate =
+          env->GetMethodID(viewClass, "postInvalidate", "()V");
+      env->CallVoidMethod(overlayView, postInvalidate);
+    }
+  } else if (id == 6 || id == 7) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (isSpinSearchOwningCue())
+      return;
+    previewPowerPct += (id == 7) ? previewStepPct : -previewStepPct;
+    if (previewPowerPct < 0.01f)
+      previewPowerPct = 0.01f;
+    if (previewPowerPct > 100.0f)
+      previewPowerPct = 100.0f;
+    char msg[32];
+    const char *fmt = (previewStepPct < 0.005f) ? "%.3f%%" : (previewStepPct < 0.05f) ? "%.2f%%" : "%.1f%%";
+    std::string pFmt = decryptStr(ENC_FMT_PREVPOW, sizeof(ENC_FMT_PREVPOW)) + fmt;
+    snprintf(msg, sizeof(msg), pFmt.c_str(), (double)previewPowerPct);
+    updateTextView(env, previewPowerTextView, msg);
+    if (g_previewPowerSeekBar) {
+      jclass seekBarClass = env->FindClass("android/widget/SeekBar");
+      jmethodID setProgress = env->GetMethodID(seekBarClass, "setProgress", "(I)V");
+      env->CallVoidMethod(g_previewPowerSeekBar, setProgress, (jint)(previewPowerPct * 10.0f));
+      env->DeleteLocalRef(seekBarClass);
+    }
+    g_refreshPreview.store(true); 
+#ifdef ADVANCED_CONTROLS
+  } else if (id == 16 || id == 17 || id == 18 || id == 19) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    previewStepPct = (id == 16) ? 1.0f : (id == 17) ? 0.1f : (id == 18) ? 0.01f : 0.001f;
+    jint selColor = (jint)0xFFFFFFFF, dimColor = (jint)0xFF666666;
+    if (g_stepBtn1)    env->CallVoidMethod(g_stepBtn1,    uiClasses.setTextColor, (id == 16) ? selColor : dimColor);
+    if (g_stepBtn01)   env->CallVoidMethod(g_stepBtn01,   uiClasses.setTextColor, (id == 17) ? selColor : dimColor);
+    if (g_stepBtn001)  env->CallVoidMethod(g_stepBtn001,  uiClasses.setTextColor, (id == 18) ? selColor : dimColor);
+    if (g_stepBtn0001) env->CallVoidMethod(g_stepBtn0001, uiClasses.setTextColor, (id == 19) ? selColor : dimColor);
+  } else if (id == 22 || id == 23) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (isSpinSearchOwningCue())
+      return;
+    float delta = (id == 23) ? dirStepDeg : -dirStepDeg;
+    g_rotateDelta = delta;
+    g_rotateCue.store(true);
+  } else if (id == 24 || id == 25 || id == 26 || id == 31) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    dirStepDeg = (id == 24) ? 1.0f : (id == 25) ? 0.1f : (id == 26) ? 0.01f : 0.001f;
+    jint selColor = (jint)0xFFFFFFFF, dimColor = (jint)0xFF666666;
+    if (g_dirStepBtn1)    env->CallVoidMethod(g_dirStepBtn1,    uiClasses.setTextColor, (id == 24) ? selColor : dimColor);
+    if (g_dirStepBtn01)   env->CallVoidMethod(g_dirStepBtn01,   uiClasses.setTextColor, (id == 25) ? selColor : dimColor);
+    if (g_dirStepBtn001)  env->CallVoidMethod(g_dirStepBtn001,  uiClasses.setTextColor, (id == 26) ? selColor : dimColor);
+    if (g_dirStepBtn0001) env->CallVoidMethod(g_dirStepBtn0001, uiClasses.setTextColor, (id == 31) ? selColor : dimColor);
+  } else if (id == 15) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    g_takeShot.store(true);
+  } else if (id == 32) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (!g_hasRestoreShot) {
+      showToast(env, decryptStr(ENC_NO_RESTORE_SHOT, sizeof(ENC_NO_RESTORE_SHOT)).c_str());
+    } else if (!g_isInTrickShotMode) {
+      showToast(env, decryptStr(ENC_NOT_TRICKSHOT, sizeof(ENC_NOT_TRICKSHOT)).c_str());
+    } else {
+      cancelAllHelperSearches();
+      g_restoreShotStart.store(true);
+    }
+  } else if (id == 33) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    clearRestoreShotSlot();
+    showToast(env, decryptStr(ENC_CLEANED, sizeof(ENC_CLEANED)).c_str());
+  } else if (id == 34) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    std::string csv = exportSavedShotsCsv();
+    if (csv.empty()) {
+      showToast(env, decryptStr(ENC_NO_SAVED_EXPORT, sizeof(ENC_NO_SAVED_EXPORT)).c_str());
+    } else if (setClipboardText(env, decryptStr(ENC_SAVED_SHOTS_LABEL, sizeof(ENC_SAVED_SHOTS_LABEL)).c_str(), csv)) {
+      char msg[64];
+      int shotCount;
+      { std::lock_guard<std::mutex> lock(g_savedShotsMutex); shotCount = (int)g_savedShots.size(); }
+      std::string fmt =
+          decryptStr(ENC_FMT_EXPORTED_SHOTS, sizeof(ENC_FMT_EXPORTED_SHOTS));
+      snprintf(msg, sizeof(msg), fmt.c_str(), shotCount);
+      showToast(env, msg);
+    } else {
+      showToast(env, decryptStr(ENC_EXPORT_FAILED, sizeof(ENC_EXPORT_FAILED)).c_str());
+    }
+  } else if (id == 35) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    std::string clipText = trimSavedShotText(getClipboardText(env));
+    if (clipText.empty()) {
+      showToast(env, decryptStr(ENC_CLIPBOARD_EMPTY, sizeof(ENC_CLIPBOARD_EMPTY)).c_str());
+    } else {
+      int duplicateCount = 0;
+      int invalidCount = 0;
+      int importedCount =
+          importSavedShotsCsv(clipText, &duplicateCount, &invalidCount);
+      if (importedCount > 0) {
+        char msg[96];
+        int skipped = duplicateCount + invalidCount;
+        if (skipped > 0) {
+          std::string fmt = decryptStr(
+              ENC_FMT_IMPORTED_SHOTS_SKIPPED,
+              sizeof(ENC_FMT_IMPORTED_SHOTS_SKIPPED));
+          snprintf(msg, sizeof(msg), fmt.c_str(), importedCount, skipped);
+        } else {
+          std::string fmt =
+              decryptStr(ENC_FMT_IMPORTED_SHOTS, sizeof(ENC_FMT_IMPORTED_SHOTS));
+          snprintf(msg, sizeof(msg), fmt.c_str(), importedCount);
+        }
+        showToast(env, msg);
+        showSavedShotsDialog(env, g_activity);
+      } else if (duplicateCount > 0 && invalidCount == 0) {
+        showToast(env, decryptStr(ENC_ALL_IMPORTED_EXIST, sizeof(ENC_ALL_IMPORTED_EXIST)).c_str());
+      } else {
+        showToast(env, decryptStr(ENC_NO_VALID_SHOTS, sizeof(ENC_NO_VALID_SHOTS)).c_str());
+      }
+    }
+  } else if (id == 999) {
+    dismissSavedDialog(env);
+  } else if (id >= 1000 && id < 2000) {
+    int delIndex = id - 1000;
+    deleteSavedShot(delIndex);
+    showSavedShotsDialog(env, g_activity);
+  } else if (id == 27) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (g_autoAimActive.load()) {
+      g_autoAimActive.store(false);
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    } else if (!g_autoAimModeDirection && !g_autoAimModePower) {
+      showToast(env, decryptStr(ENC_SELECT_MODE, sizeof(ENC_SELECT_MODE)).c_str());
+    } else if (!g_isInTrickShotMode) {
+      showToast(env, decryptStr(ENC_NOT_TRICKSHOT, sizeof(ENC_NOT_TRICKSHOT)).c_str());
+    } else if (isSpinSearchOwningCue()) {
+      clearSpinSearchRuntimeState();
+      if (g_autoAimModeDirection && g_autoAimModePower) {
+        g_autoAimIsPowerMode = false;
+        g_autoAimComboMode = true;
+      } else if (g_autoAimModeDirection) {
+        g_autoAimIsPowerMode = false;
+        g_autoAimComboMode = false;
+      } else {
+        g_autoAimIsPowerMode = true;
+        g_autoAimComboMode = false;
+      }
+      g_autoAimStart.store(true);
+      showToast(env, decryptStr(ENC_SEARCHING, sizeof(ENC_SEARCHING)).c_str());
+    } else if (g_autoAimModeDirection && g_autoAimModePower) {
+      g_autoAimIsPowerMode = false;  
+      g_autoAimComboMode = true;
+      g_autoAimStart.store(true);
+    } else if (g_autoAimModeDirection) {
+      g_autoAimIsPowerMode = false;
+      g_autoAimComboMode = false;
+      g_autoAimStart.store(true);
+    } else {
+      g_autoAimIsPowerMode = true;
+      g_autoAimComboMode = false;
+      g_autoAimStart.store(true);
+    }
+  } else if (id == 48) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (g_autoAimActive.load() || g_refineActive.load() || g_aggRefineActive.load()) {
+      g_autoAimActive.store(false);
+      g_refineActive.store(false);
+      g_aggRefineActive.store(false);
+      g_autoAimComboMode = false;
+      syncPowerAutoAimUI();
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    } else if (!g_autoAimModeDirection || !g_autoAimModePower) {
+      showToast(env, decryptStr(ENC_SELECT_MODE, sizeof(ENC_SELECT_MODE)).c_str());
+    } else if (!g_isInTrickShotMode) {
+      showToast(env, decryptStr(ENC_NOT_TRICKSHOT, sizeof(ENC_NOT_TRICKSHOT)).c_str());
+    } else if (isSpinSearchOwningCue()) {
+      clearSpinSearchRuntimeState();
+      g_autoAimIsPowerMode = false;
+      g_autoAimComboMode   = false; 
+      g_autoAimStart.store(true);
+      showToast(env, decryptStr(ENC_SEARCHING, sizeof(ENC_SEARCHING)).c_str());
+    } else {
+      g_autoAimIsPowerMode = false;
+      g_autoAimComboMode   = false; 
+      g_autoAimStart.store(true);
+    }
+  } else if (id == 28) {
+    g_autoAimModeDirection = !g_autoAimModeDirection;
+    if (g_autoAimComboMode && g_autoAimActive.load()) {
+      g_autoAimActive.store(false);
+      g_autoAimComboMode = false;
+      if (g_autoAimIsPowerMode) syncPowerAutoAimUI();
+    }
+    jint dirColor = g_autoAimModeDirection ? (jint)0xFF00FF88 : (jint)0xFF888888;
+    jint pwrColor = g_autoAimModePower    ? (jint)0xFF00FF88 : (jint)0xFF888888;
+    if (g_autoAimDirToggle) env->CallVoidMethod(g_autoAimDirToggle, uiClasses.setTextColor, dirColor);
+    if (g_autoAimPwrToggle) env->CallVoidMethod(g_autoAimPwrToggle, uiClasses.setTextColor, pwrColor);
+  } else if (id == 29) {
+    g_autoAimModePower = !g_autoAimModePower;
+    if (g_autoAimComboMode && g_autoAimActive.load()) {
+      g_autoAimActive.store(false);
+      g_autoAimComboMode = false;
+      if (g_autoAimIsPowerMode) syncPowerAutoAimUI();
+    }
+    jint dirColor = g_autoAimModeDirection ? (jint)0xFF00FF88 : (jint)0xFF888888;
+    jint pwrColor = g_autoAimModePower    ? (jint)0xFF00FF88 : (jint)0xFF888888;
+    if (g_autoAimDirToggle) env->CallVoidMethod(g_autoAimDirToggle, uiClasses.setTextColor, dirColor);
+    if (g_autoAimPwrToggle) env->CallVoidMethod(g_autoAimPwrToggle, uiClasses.setTextColor, pwrColor);
+  } else if (id == 36) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (g_autoAimActive.load() || g_refineActive.load() || g_aggRefineActive.load()) {
+      g_autoAimActive.store(false);
+      g_refineActive.store(false);
+      g_aggRefineActive.store(false);
+      g_autoAimComboMode = false;
+      syncPowerAutoAimUI();
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    } else if (!g_autoAimModeDirection || !g_autoAimModePower) {
+      showToast(env, decryptStr(ENC_SELECT_MODE, sizeof(ENC_SELECT_MODE)).c_str());
+    } else if (!g_isInTrickShotMode) {
+      showToast(env, decryptStr(ENC_NOT_TRICKSHOT, sizeof(ENC_NOT_TRICKSHOT)).c_str());
+    } else if (isSpinSearchOwningCue()) {
+      clearSpinSearchRuntimeState();
+      showToast(env, decryptStr(ENC_REFINING, sizeof(ENC_REFINING)).c_str());
+      g_refineStart.store(true);
+    } else {
+      showToast(env, decryptStr(ENC_REFINING, sizeof(ENC_REFINING)).c_str());
+      g_refineStart.store(true);
+    }
+  } else if (id == 49) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (g_autoAimActive.load() || g_refineActive.load() || g_aggRefineActive.load()) {
+      g_autoAimActive.store(false);
+      g_refineActive.store(false);
+      g_aggRefineActive.store(false);
+      g_autoAimComboMode = false;
+      syncPowerAutoAimUI();
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    } else if (!g_autoAimModeDirection || !g_autoAimModePower) {
+      showToast(env, decryptStr(ENC_SELECT_MODE, sizeof(ENC_SELECT_MODE)).c_str());
+    } else if (!g_isInTrickShotMode) {
+      showToast(env, decryptStr(ENC_NOT_TRICKSHOT, sizeof(ENC_NOT_TRICKSHOT)).c_str());
+    } else if (isSpinSearchOwningCue()) {
+      clearSpinSearchRuntimeState();
+      showToast(env, decryptStr(ENC_AGG_REFINING, sizeof(ENC_AGG_REFINING)).c_str());
+      g_aggRefineStart.store(true);
+    } else {
+      showToast(env, decryptStr(ENC_AGG_REFINING, sizeof(ENC_AGG_REFINING)).c_str());
+      g_aggRefineStart.store(true);
+    }
+  } else if (id == 37) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (isSpinSearchOwningCue()) {
+      clearSpinSearchRuntimeState();
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    } else if (!g_isInTrickShotMode) {
+      showToast(env, decryptStr(ENC_NOT_TRICKSHOT, sizeof(ENC_NOT_TRICKSHOT)).c_str());
+    } else {
+      g_autoAimActive.store(false);
+      g_autoAimComboMode = false;
+      g_refineActive.store(false);
+      g_refineStart.store(false);
+      g_aggRefineActive.store(false);
+      g_aggRefineStart.store(false);
+      g_smartAimActive = false;
+      g_smartAimStart.store(false);
+      if (g_autoAimIsPowerMode)
+        syncPowerAutoAimUI();
+      g_spinSearchStart.store(true);
+      showToast(env, decryptStr(ENC_SEARCHING, sizeof(ENC_SEARCHING)).c_str());
+    }
+  } else if (id == 38) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (g_aggressiveSpinActive.load() || g_aggressiveSpinStart.load()) {
+      requestCancelOrClearSpinSearch();
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    } else if (!g_isInTrickShotMode) {
+      showToast(env, decryptStr(ENC_NOT_TRICKSHOT, sizeof(ENC_NOT_TRICKSHOT)).c_str());
+    } else {
+      g_autoAimActive.store(false);
+      g_autoAimComboMode = false;
+      g_refineActive.store(false);
+      g_refineStart.store(false);
+      g_aggRefineActive.store(false);
+      g_aggRefineStart.store(false);
+      g_smartAimActive = false;
+      g_smartAimStart.store(false);
+      if (g_autoAimIsPowerMode)
+        syncPowerAutoAimUI();
+      clearSpinSearchRuntimeState();
+      g_aggressiveSpinStart.store(true);
+      showToast(env, decryptStr(ENC_SEARCHING, sizeof(ENC_SEARCHING)).c_str());
+    }
+  } else if (id == 39 || id == 40 || id == 41) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (id == 39) g_aggSpinEnableCenterInner = !g_aggSpinEnableCenterInner;
+    else if (id == 40) g_aggSpinEnableMid = !g_aggSpinEnableMid;
+    else g_aggSpinEnableOuter = !g_aggSpinEnableOuter;
+    jint onClr = (jint)0xFF00FF88;
+    jint offClr = (jint)0xFF888888;
+    if (g_aggSpinToggleCI)
+      env->CallVoidMethod(g_aggSpinToggleCI, uiClasses.setTextColor,
+                          g_aggSpinEnableCenterInner ? onClr : offClr);
+    if (g_aggSpinToggleMid)
+      env->CallVoidMethod(g_aggSpinToggleMid, uiClasses.setTextColor,
+                          g_aggSpinEnableMid ? onClr : offClr);
+    if (g_aggSpinToggleOuter)
+      env->CallVoidMethod(g_aggSpinToggleOuter, uiClasses.setTextColor,
+                          g_aggSpinEnableOuter ? onClr : offClr);
+    if (g_aggressiveSpinActive.load() || g_aggressiveSpinStart.load() ||
+        g_spinComboRetuneActive.load()) {
+      requestCancelOrClearSpinSearch();
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    }
+  } else if (id == 42 || id == 43 || id == 44 || id == 45) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    g_aggSpinDepthCap = (id == 42) ? 3 : (id == 43) ? 4 : (id == 44) ? 5 : 6;
+    jint selClr = (jint)0xFFFFFFFF;
+    jint dimClr = (jint)0xFF666666;
+    if (g_aggSpinDepthBtn3)
+      env->CallVoidMethod(g_aggSpinDepthBtn3, uiClasses.setTextColor,
+                          (g_aggSpinDepthCap == 3) ? selClr : dimClr);
+    if (g_aggSpinDepthBtn4)
+      env->CallVoidMethod(g_aggSpinDepthBtn4, uiClasses.setTextColor,
+                          (g_aggSpinDepthCap == 4) ? selClr : dimClr);
+    if (g_aggSpinDepthBtn5)
+      env->CallVoidMethod(g_aggSpinDepthBtn5, uiClasses.setTextColor,
+                          (g_aggSpinDepthCap == 5) ? selClr : dimClr);
+    if (g_aggSpinDepthBtn6)
+      env->CallVoidMethod(g_aggSpinDepthBtn6, uiClasses.setTextColor,
+                          (g_aggSpinDepthCap == 6) ? selClr : dimClr);
+    if (g_aggressiveSpinActive.load() || g_aggressiveSpinStart.load() ||
+        g_spinComboRetuneActive.load()) {
+      requestCancelOrClearSpinSearch();
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    }
+#endif 
+  } else if (id == 46) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    g_aggSpinClimbMode = (g_aggSpinClimbMode + 1) % 3;
+    jint onClr = (jint)0xFFFFFFFF;
+    jint offClr = (jint)0xFF666666;
+    if (g_aggSpinClimbBtn) {
+      const uint8_t *encLabel = (g_aggSpinClimbMode == 2) ? ENC_PP_CLIMB : ENC_P_CLIMB;
+      size_t encLen = (g_aggSpinClimbMode == 2) ? sizeof(ENC_PP_CLIMB) : sizeof(ENC_P_CLIMB);
+      jstring lbl = env->NewStringUTF(decryptStr(encLabel, encLen).c_str());
+      env->CallVoidMethod(g_aggSpinClimbBtn, uiClasses.setText, lbl);
+      env->DeleteLocalRef(lbl);
+      env->CallVoidMethod(g_aggSpinClimbBtn, uiClasses.setTextColor,
+                          (g_aggSpinClimbMode > 0) ? onClr : offClr);
+    }
+    if (g_aggressiveSpinActive.load() || g_aggressiveSpinStart.load() ||
+        g_spinComboRetuneActive.load() || g_spinSearchActive.load()) {
+      requestCancelOrClearSpinSearch();
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    }
+  } else if (id == 47) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    g_aggSpinPSpinMode = (g_aggSpinPSpinMode + 1) % 3;
+    jint onClr = (jint)0xFFFFFFFF;
+    jint offClr = (jint)0xFF666666;
+    if (g_aggSpinPPSpinBtn) {
+      const uint8_t *encLabel = (g_aggSpinPSpinMode == 2) ? ENC_PP_SPIN : ENC_P_SPIN;
+      size_t encLen = (g_aggSpinPSpinMode == 2) ? sizeof(ENC_PP_SPIN) : sizeof(ENC_P_SPIN);
+      jstring lbl = env->NewStringUTF(decryptStr(encLabel, encLen).c_str());
+      env->CallVoidMethod(g_aggSpinPPSpinBtn, uiClasses.setText, lbl);
+      env->DeleteLocalRef(lbl);
+      env->CallVoidMethod(g_aggSpinPPSpinBtn, uiClasses.setTextColor,
+                          (g_aggSpinPSpinMode > 0) ? onClr : offClr);
+    }
+    if (g_aggressiveSpinActive.load() || g_aggressiveSpinStart.load() ||
+        g_spinComboRetuneActive.load()) {
+      requestCancelOrClearSpinSearch();
+      showToast(env, decryptStr(ENC_CANCELLED, sizeof(ENC_CANCELLED)).c_str());
+    }
+  } else if (id == 8) {
+    if (g_freeMode) {
+      showToast(env, decryptStr(ENC_REQUIRES_KEY, sizeof(ENC_REQUIRES_KEY)).c_str());
+      env->DeleteLocalRef(viewClass);
+      return;
+    }
+    if (g_remoteCfgFetched && !g_remoteCfgShootitAllowed) {
+      std::string msg = decryptStr(ENC_RC_SHOOTIT_DENIED, sizeof(ENC_RC_SHOOTIT_DENIED));
+      showToast(env, msg.c_str());
+      return;
+    }
+    g_shootitPredEnabled = !g_shootitPredEnabled;
+    if (g_shootitPredEnabled) {
+      g_extendedLinesEnabled = false;
+      g_predictionLinesEnabled = false;
+      g_previewLineEnabled = false;
+      g_lastFreeDirX = -999.0f; g_lastFreeDirZ = -999.0f;
+      if (g_extendedLinesToggle) {
+        jstring off = env->NewStringUTF("OFF");
+        env->CallVoidMethod(g_extendedLinesToggle, uiClasses.setText, off);
+        env->DeleteLocalRef(off);
+        env->CallVoidMethod(g_extendedLinesToggle, uiClasses.setTextColor, (jint)0xFF888888);
+        jobject bg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+        env->CallVoidMethod(bg, uiClasses.setCornerRadius, 10.0f);
+        env->CallVoidMethod(bg, uiClasses.setColor, (jint)0xFF1A1A1A);
+        env->CallVoidMethod(bg, uiClasses.setStroke, 2, (jint)0xFF888888);
+        env->CallVoidMethod(g_extendedLinesToggle, uiClasses.setBackground, bg);
+        env->DeleteLocalRef(bg);
+      }
+      if (g_predToggleView) {
+        jstring off = env->NewStringUTF("OFF");
+        env->CallVoidMethod(g_predToggleView, uiClasses.setText, off);
+        env->DeleteLocalRef(off);
+        env->CallVoidMethod(g_predToggleView, uiClasses.setTextColor, (jint)0xFF888888);
+        jobject bg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+        env->CallVoidMethod(bg, uiClasses.setCornerRadius, 10.0f);
+        env->CallVoidMethod(bg, uiClasses.setColor, (jint)0xFF1A1A1A);
+        env->CallVoidMethod(bg, uiClasses.setStroke, 2, (jint)0xFF888888);
+        env->CallVoidMethod(g_predToggleView, uiClasses.setBackground, bg);
+        env->DeleteLocalRef(bg);
+      }
+      if (g_previewToggleView) {
+        jstring off = env->NewStringUTF("OFF");
+        env->CallVoidMethod(g_previewToggleView, uiClasses.setText, off);
+        env->DeleteLocalRef(off);
+        env->CallVoidMethod(g_previewToggleView, uiClasses.setTextColor, (jint)0xFF888888);
+        jobject bg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+        env->CallVoidMethod(bg, uiClasses.setCornerRadius, 10.0f);
+        env->CallVoidMethod(bg, uiClasses.setColor, (jint)0xFF1A1A1A);
+        env->CallVoidMethod(bg, uiClasses.setStroke, 2, (jint)0xFF888888);
+        env->CallVoidMethod(g_previewToggleView, uiClasses.setBackground, bg);
+        env->DeleteLocalRef(bg);
+      }
+    }
+    if (g_shootitPredToggle) {
+      const char *label = getLabel(g_shootitPredEnabled);
+      jstring s = env->NewStringUTF(label);
+      env->CallVoidMethod(g_shootitPredToggle, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      jint col = g_shootitPredEnabled ? (jint)0xFF00FF00 : (jint)0xFF888888;
+      env->CallVoidMethod(g_shootitPredToggle, uiClasses.setTextColor, col);
+      jobject newBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                     uiClasses.gradientDrawableCtor);
+      env->CallVoidMethod(newBg, uiClasses.setCornerRadius, 10.0f);
+      env->CallVoidMethod(newBg, uiClasses.setColor, (jint)0xFF1A1A1A);
+      env->CallVoidMethod(newBg, uiClasses.setStroke, 2, col);
+      env->CallVoidMethod(g_shootitPredToggle, uiClasses.setBackground, newBg);
+      env->DeleteLocalRef(newBg);
+    }
+    if (!g_shootitPredEnabled && overlayView) {
+      jfloatArray emptyArr = env->NewFloatArray(0);
+      env->CallVoidMethod(overlayView, uiClasses.updateMultiPointsMethod,
+                          emptyArr);
+      env->DeleteLocalRef(emptyArr);
+    }
+  } else if (id == 11) {
+    jclass ctxClass = env->FindClass("android/content/Context");
+    jmethodID getSysService = env->GetMethodID(
+        ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+    jstring clipSvc = env->NewStringUTF("clipboard");
+    jobject cm = env->CallObjectMethod(g_activity, getSysService, clipSvc);
+    env->DeleteLocalRef(clipSvc);
+    if (cm) {
+      jclass clipDataClass = env->FindClass("android/content/ClipData");
+      jmethodID newPlain =
+          env->GetStaticMethodID(clipDataClass, "newPlainText",
+                                 "(Ljava/lang/CharSequence;Ljava/lang/"
+                                 "CharSequence;)Landroid/content/ClipData;");
+      jstring label = env->NewStringUTF("id");
+      jstring text = env->NewStringUTF(g_deviceId.c_str());
+      jobject clip =
+          env->CallStaticObjectMethod(clipDataClass, newPlain, label, text);
+      jclass cmClass = env->FindClass("android/content/ClipboardManager");
+      jmethodID setPrimary = env->GetMethodID(cmClass, "setPrimaryClip",
+                                              "(Landroid/content/ClipData;)V");
+      env->CallVoidMethod(cm, setPrimary, clip);
+      env->DeleteLocalRef(clip);
+      env->DeleteLocalRef(text);
+      env->DeleteLocalRef(label);
+      env->DeleteLocalRef(clipDataClass);
+      env->DeleteLocalRef(cmClass);
+      env->DeleteLocalRef(cm);
+      showToast(env, decryptStr(ENC_COPIED, sizeof(ENC_COPIED)).c_str());
+    }
+    env->DeleteLocalRef(ctxClass);
+  } else if (id == 20 || id == 21) {
+    std::string url = (id == 20)
+        ? decryptStr(ENC_CREDITS_YT_URL, sizeof(ENC_CREDITS_YT_URL))
+        : decryptStr(ENC_CREDITS_TG_URL, sizeof(ENC_CREDITS_TG_URL));
+    jclass uriClass = env->FindClass("android/net/Uri");
+    jmethodID uriParse = env->GetStaticMethodID(uriClass, "parse",
+        "(Ljava/lang/String;)Landroid/net/Uri;");
+    jstring urlStr = env->NewStringUTF(url.c_str());
+    jobject uri = env->CallStaticObjectMethod(uriClass, uriParse, urlStr);
+    env->DeleteLocalRef(urlStr);
+    jclass intentClass = env->FindClass("android/content/Intent");
+    jmethodID intentCtor = env->GetMethodID(intentClass, "<init>",
+        "(Ljava/lang/String;Landroid/net/Uri;)V");
+    jstring actionView = env->NewStringUTF("android.intent.action.VIEW");
+    jobject intent = env->NewObject(intentClass, intentCtor, actionView, uri);
+    env->DeleteLocalRef(actionView);
+    env->DeleteLocalRef(uri);
+    jclass actClass = env->FindClass("android/app/Activity");
+    jmethodID startActivity = env->GetMethodID(actClass, "startActivity",
+        "(Landroid/content/Intent;)V");
+    env->CallVoidMethod(g_activity, startActivity, intent);
+    env->DeleteLocalRef(intent);
+    env->DeleteLocalRef(uriClass);
+    env->DeleteLocalRef(intentClass);
+    env->DeleteLocalRef(actClass);
+  } else if (id == 30) {
+    if (!g_updateUrl.empty()) {
+      jclass uriClass = env->FindClass("android/net/Uri");
+      jmethodID uriParse = env->GetStaticMethodID(uriClass, "parse",
+          "(Ljava/lang/String;)Landroid/net/Uri;");
+      jstring urlStr = env->NewStringUTF(g_updateUrl.c_str());
+      jobject uri = env->CallStaticObjectMethod(uriClass, uriParse, urlStr);
+      env->DeleteLocalRef(urlStr);
+      jclass intentClass = env->FindClass("android/content/Intent");
+      jmethodID intentCtor = env->GetMethodID(intentClass, "<init>",
+          "(Ljava/lang/String;Landroid/net/Uri;)V");
+      jstring actionView = env->NewStringUTF("android.intent.action.VIEW");
+      jobject intent = env->NewObject(intentClass, intentCtor, actionView, uri);
+      env->DeleteLocalRef(actionView);
+      env->DeleteLocalRef(uri);
+      jclass actClass = env->FindClass("android/app/Activity");
+      jmethodID startActivity = env->GetMethodID(actClass, "startActivity",
+          "(Landroid/content/Intent;)V");
+      env->CallVoidMethod(g_activity, startActivity, intent);
+      env->DeleteLocalRef(intent);
+      env->DeleteLocalRef(uriClass);
+      env->DeleteLocalRef(intentClass);
+      env->DeleteLocalRef(actClass);
+    }
+  } else if (id == 12 && g_loginContainer) {
+    g_freeMode = true;
+    jmethodID getParent =
+        env->GetMethodID(viewClass, "getParent", "()Landroid/view/ViewParent;");
+    jclass vgClass = env->FindClass("android/view/ViewGroup");
+    jmethodID removeView =
+        env->GetMethodID(vgClass, "removeView", "(Landroid/view/View;)V");
+    jobject parent = env->CallObjectMethod(g_loginContainer, getParent);
+    if (parent) {
+      env->CallVoidMethod(parent, removeView, g_loginContainer);
+      env->DeleteLocalRef(parent);
+    }
+    env->DeleteLocalRef(vgClass);
+    env->DeleteGlobalRef(g_loginContainer);
+    if (g_keyField1) env->DeleteGlobalRef(g_keyField1);
+    if (g_keyField2) env->DeleteGlobalRef(g_keyField2);
+    if (g_keyField3) env->DeleteGlobalRef(g_keyField3);
+    if (g_keyField4) env->DeleteGlobalRef(g_keyField4);
+    g_loginContainer = g_keyField1 = g_keyField2 = g_keyField3 = g_keyField4 =
+        nullptr;
+    startTrainer(env, g_activity);
+  } else if (id == 9) {
+    g_extendedLinesEnabled = !g_extendedLinesEnabled;
+    if (g_extendedLinesEnabled) {
+      g_predictionLinesEnabled = false;
+      g_shootitPredEnabled = false;
+      g_previewLineEnabled = false;
+      if (g_predToggleView) {
+        jstring off = env->NewStringUTF("OFF");
+        env->CallVoidMethod(g_predToggleView, uiClasses.setText, off);
+        env->DeleteLocalRef(off);
+        env->CallVoidMethod(g_predToggleView, uiClasses.setTextColor, (jint)0xFF888888);
+        jobject bg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+        env->CallVoidMethod(bg, uiClasses.setCornerRadius, 10.0f);
+        env->CallVoidMethod(bg, uiClasses.setColor, (jint)0xFF1A1A1A);
+        env->CallVoidMethod(bg, uiClasses.setStroke, 2, (jint)0xFF888888);
+        env->CallVoidMethod(g_predToggleView, uiClasses.setBackground, bg);
+        env->DeleteLocalRef(bg);
+      }
+      if (g_shootitPredToggle) {
+        jstring off = env->NewStringUTF("OFF");
+        env->CallVoidMethod(g_shootitPredToggle, uiClasses.setText, off);
+        env->DeleteLocalRef(off);
+        env->CallVoidMethod(g_shootitPredToggle, uiClasses.setTextColor, (jint)0xFF888888);
+        jobject bg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+        env->CallVoidMethod(bg, uiClasses.setCornerRadius, 10.0f);
+        env->CallVoidMethod(bg, uiClasses.setColor, (jint)0xFF1A1A1A);
+        env->CallVoidMethod(bg, uiClasses.setStroke, 2, (jint)0xFF888888);
+        env->CallVoidMethod(g_shootitPredToggle, uiClasses.setBackground, bg);
+        env->DeleteLocalRef(bg);
+      }
+      if (g_previewToggleView) {
+        jstring off = env->NewStringUTF("OFF");
+        env->CallVoidMethod(g_previewToggleView, uiClasses.setText, off);
+        env->DeleteLocalRef(off);
+        env->CallVoidMethod(g_previewToggleView, uiClasses.setTextColor, (jint)0xFF888888);
+        jobject bg = env->NewObject(uiClasses.gradientDrawableClass, uiClasses.gradientDrawableCtor);
+        env->CallVoidMethod(bg, uiClasses.setCornerRadius, 10.0f);
+        env->CallVoidMethod(bg, uiClasses.setColor, (jint)0xFF1A1A1A);
+        env->CallVoidMethod(bg, uiClasses.setStroke, 2, (jint)0xFF888888);
+        env->CallVoidMethod(g_previewToggleView, uiClasses.setBackground, bg);
+        env->DeleteLocalRef(bg);
+      }
+    }
+    if (g_extendedLinesToggle) {
+      const char *label = getLabel(g_extendedLinesEnabled);
+      jstring s = env->NewStringUTF(label);
+      env->CallVoidMethod(g_extendedLinesToggle, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      jint col = g_extendedLinesEnabled ? (jint)0xFF00FF00 : (jint)0xFF888888;
+      env->CallVoidMethod(g_extendedLinesToggle, uiClasses.setTextColor, col);
+      jobject newBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                     uiClasses.gradientDrawableCtor);
+      env->CallVoidMethod(newBg, uiClasses.setCornerRadius, 10.0f);
+      env->CallVoidMethod(newBg, uiClasses.setColor, (jint)0xFF1A1A1A);
+      env->CallVoidMethod(newBg, uiClasses.setStroke, 2, col);
+      env->CallVoidMethod(g_extendedLinesToggle, uiClasses.setBackground, newBg);
+      env->DeleteLocalRef(newBg);
+    }
+    if (!g_extendedLinesEnabled) {
+      std::lock_guard<std::mutex> lock(trajectoryMutex);
+      cachedTrajectoryScreenCoords.clear();
+      hasNewTrajectory = true;
+    } else {
+      std::lock_guard<std::mutex> lock(g_freeBallMutex);
+      g_freeBallRegistry.clear();
+      g_freeCueBallValid = false;
+      g_freeCueBallObject = nullptr;
+    }
+    pushTrajectoryToOverlay();
+  } else if (id == 14 || id == 15 || id == 16) {
+    g_freeLineColorIdx = (id == 14) ? 210 : (id == 15) ? 211 : 212;
+    g_lastFreeDirX = -999.0f;
+    g_lastFreeDirZ = -999.0f;
+  }
+  env->DeleteLocalRef(viewClass);
+}
+static void fetchVersionInfo(JNIEnv *env) {
+  std::string versionUrl = decryptStr(ENC_VERSION_URL, sizeof(ENC_VERSION_URL));
+  jclass urlClass = env->FindClass("java/net/URL");
+  if (!urlClass) return;
+  jmethodID urlCtor = env->GetMethodID(urlClass, "<init>", "(Ljava/lang/String;)V");
+  jstring jUrl = env->NewStringUTF(versionUrl.c_str());
+  jobject urlObj = env->NewObject(urlClass, urlCtor, jUrl);
+  env->DeleteLocalRef(jUrl);
+  if (env->ExceptionCheck()) { env->ExceptionClear(); env->DeleteLocalRef(urlClass); return; }
+  jmethodID openConn = env->GetMethodID(urlClass, "openConnection", "()Ljava/net/URLConnection;");
+  jobject conn = env->CallObjectMethod(urlObj, openConn);
+  env->DeleteLocalRef(urlObj);
+  env->DeleteLocalRef(urlClass);
+  if (!conn || env->ExceptionCheck()) {
+    env->ExceptionClear();
+    if (conn) env->DeleteLocalRef(conn);
+    return;
+  }
+  jclass httpClass = env->FindClass("java/net/HttpURLConnection");
+  jmethodID setConnTimeout = env->GetMethodID(httpClass, "setConnectTimeout", "(I)V");
+  jmethodID setReadTimeout = env->GetMethodID(httpClass, "setReadTimeout", "(I)V");
+  env->CallVoidMethod(conn, setConnTimeout, 5000);
+  env->CallVoidMethod(conn, setReadTimeout, 5000);
+  if (g_sslFactory) {
+    jclass httpsClass = env->FindClass("javax/net/ssl/HttpsURLConnection");
+    if (httpsClass) {
+      jmethodID setFactory = env->GetMethodID(httpsClass, "setSSLSocketFactory",
+          "(Ljavax/net/ssl/SSLSocketFactory;)V");
+      env->CallVoidMethod(conn, setFactory, g_sslFactory);
+      env->DeleteLocalRef(httpsClass);
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+  }
+  jmethodID getResponseCode = env->GetMethodID(httpClass, "getResponseCode", "()I");
+  jint code = env->CallIntMethod(conn, getResponseCode);
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+    jmethodID disconnect = env->GetMethodID(httpClass, "disconnect", "()V");
+    env->CallVoidMethod(conn, disconnect);
+    env->DeleteLocalRef(conn);
+    env->DeleteLocalRef(httpClass);
+    return;
+  }
+  if (code != 200) {
+    jmethodID disconnect = env->GetMethodID(httpClass, "disconnect", "()V");
+    env->CallVoidMethod(conn, disconnect);
+    env->DeleteLocalRef(conn);
+    env->DeleteLocalRef(httpClass);
+    return;
+  }
+  jmethodID getIS = env->GetMethodID(httpClass, "getInputStream", "()Ljava/io/InputStream;");
+  jobject is = env->CallObjectMethod(conn, getIS);
+  if (!is || env->ExceptionCheck()) {
+    env->ExceptionClear();
+    jmethodID disconnect = env->GetMethodID(httpClass, "disconnect", "()V");
+    env->CallVoidMethod(conn, disconnect);
+    if (is) env->DeleteLocalRef(is);
+    env->DeleteLocalRef(conn);
+    env->DeleteLocalRef(httpClass);
+    return;
+  }
+  jclass scannerClass = env->FindClass("java/util/Scanner");
+  jmethodID scannerCtor = env->GetMethodID(scannerClass, "<init>", "(Ljava/io/InputStream;)V");
+  jobject scanner = env->NewObject(scannerClass, scannerCtor, is);
+  jmethodID useDelim = env->GetMethodID(scannerClass, "useDelimiter",
+      "(Ljava/lang/String;)Ljava/util/Scanner;");
+  jstring delimStr = env->NewStringUTF("\\A");
+  jobject scanner2 = env->CallObjectMethod(scanner, useDelim, delimStr);
+  env->DeleteLocalRef(delimStr);
+  if (scanner2) env->DeleteLocalRef(scanner2);
+  jmethodID hasNext = env->GetMethodID(scannerClass, "hasNext", "()Z");
+  jmethodID next = env->GetMethodID(scannerClass, "next", "()Ljava/lang/String;");
+  std::string body;
+  if (env->CallBooleanMethod(scanner, hasNext)) {
+    auto jBody = (jstring)env->CallObjectMethod(scanner, next);
+    if (jBody) {
+      const char *cBody = env->GetStringUTFChars(jBody, nullptr);
+      body = cBody;
+      env->ReleaseStringUTFChars(jBody, cBody);
+      env->DeleteLocalRef(jBody);
+    }
+  }
+  jmethodID scannerClose = env->GetMethodID(scannerClass, "close", "()V");
+  env->CallVoidMethod(scanner, scannerClose);
+  env->DeleteLocalRef(scanner);
+  env->DeleteLocalRef(scannerClass);
+  env->DeleteLocalRef(is);
+  jmethodID disconnect = env->GetMethodID(httpClass, "disconnect", "()V");
+  env->CallVoidMethod(conn, disconnect);
+  env->DeleteLocalRef(conn);
+  env->DeleteLocalRef(httpClass);
+  if (body.empty()) return;
+  const std::string prefix = decryptStr(ENC_VERSION_PREFIX, sizeof(ENC_VERSION_PREFIX));
+  std::string currentVer = decryptStr(ENC_APP_VERSION, sizeof(ENC_APP_VERSION));
+  size_t searchPos = 0;
+  while (searchPos < body.size()) {
+    size_t pos = body.find(prefix, searchPos);
+    if (pos == std::string::npos) break;
+    size_t afterName = pos + 12; 
+    if (afterName < body.size() && body[afterName] == '=') {
+      size_t valueStart = afterName + 1;
+      size_t lineEnd = body.find('\n', valueStart);
+      std::string value = (lineEnd != std::string::npos)
+          ? body.substr(valueStart, lineEnd - valueStart)
+          : body.substr(valueStart);
+      if (!value.empty() && value.back() == '\r') value.pop_back();
+      size_t pipe = value.find('|');
+      if (pipe != std::string::npos) {
+        g_latestVersion = value.substr(0, pipe);
+        g_updateUrl = value.substr(pipe + 1);
+        if (g_latestVersion != currentVer) {
+          g_updateRequired = true;
+        }
+      }
+      break; 
+    }
+    searchPos = pos + prefix.length();
+  }
+}
+static void fetchRemoteConfig(JNIEnv *env) {
+  if (g_deviceId.empty() || g_deviceId == "unknown") return;
+  std::string cfgUrl = decryptStr(ENC_REMOTE_CFG_URL, sizeof(ENC_REMOTE_CFG_URL));
+  jclass urlClass = env->FindClass("java/net/URL");
+  if (!urlClass) return;
+  jmethodID urlCtor = env->GetMethodID(urlClass, "<init>", "(Ljava/lang/String;)V");
+  jstring jUrl = env->NewStringUTF(cfgUrl.c_str());
+  jobject urlObj = env->NewObject(urlClass, urlCtor, jUrl);
+  env->DeleteLocalRef(jUrl);
+  if (env->ExceptionCheck()) { env->ExceptionClear(); env->DeleteLocalRef(urlClass); return; }
+  jmethodID openConn = env->GetMethodID(urlClass, "openConnection", "()Ljava/net/URLConnection;");
+  jobject conn = env->CallObjectMethod(urlObj, openConn);
+  env->DeleteLocalRef(urlObj);
+  env->DeleteLocalRef(urlClass);
+  if (!conn || env->ExceptionCheck()) {
+    env->ExceptionClear();
+    if (conn) env->DeleteLocalRef(conn);
+    return;
+  }
+  jclass httpClass = env->FindClass("java/net/HttpURLConnection");
+  jmethodID setConnTimeout = env->GetMethodID(httpClass, "setConnectTimeout", "(I)V");
+  jmethodID setReadTimeout = env->GetMethodID(httpClass, "setReadTimeout", "(I)V");
+  env->CallVoidMethod(conn, setConnTimeout, 5000);
+  env->CallVoidMethod(conn, setReadTimeout, 5000);
+  if (g_sslFactory) {
+    jclass httpsClass = env->FindClass("javax/net/ssl/HttpsURLConnection");
+    if (httpsClass) {
+      jmethodID setFactory = env->GetMethodID(httpsClass, "setSSLSocketFactory",
+          "(Ljavax/net/ssl/SSLSocketFactory;)V");
+      env->CallVoidMethod(conn, setFactory, g_sslFactory);
+      env->DeleteLocalRef(httpsClass);
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+  }
+  jmethodID getResponseCode = env->GetMethodID(httpClass, "getResponseCode", "()I");
+  jint code = env->CallIntMethod(conn, getResponseCode);
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+    jmethodID disconnect = env->GetMethodID(httpClass, "disconnect", "()V");
+    env->CallVoidMethod(conn, disconnect);
+    env->DeleteLocalRef(conn);
+    env->DeleteLocalRef(httpClass);
+    return;
+  }
+  if (code != 200) {
+    jmethodID disconnect = env->GetMethodID(httpClass, "disconnect", "()V");
+    env->CallVoidMethod(conn, disconnect);
+    env->DeleteLocalRef(conn);
+    env->DeleteLocalRef(httpClass);
+    return;
+  }
+  jmethodID getIS = env->GetMethodID(httpClass, "getInputStream", "()Ljava/io/InputStream;");
+  jobject is = env->CallObjectMethod(conn, getIS);
+  if (!is || env->ExceptionCheck()) {
+    env->ExceptionClear();
+    jmethodID disconnect = env->GetMethodID(httpClass, "disconnect", "()V");
+    env->CallVoidMethod(conn, disconnect);
+    if (is) env->DeleteLocalRef(is);
+    env->DeleteLocalRef(conn);
+    env->DeleteLocalRef(httpClass);
+    return;
+  }
+  jclass scannerClass = env->FindClass("java/util/Scanner");
+  jmethodID scannerCtor = env->GetMethodID(scannerClass, "<init>", "(Ljava/io/InputStream;)V");
+  jobject scanner = env->NewObject(scannerClass, scannerCtor, is);
+  jmethodID useDelim = env->GetMethodID(scannerClass, "useDelimiter",
+      "(Ljava/lang/String;)Ljava/util/Scanner;");
+  jstring delimStr = env->NewStringUTF("\\A");
+  jobject scanner2 = env->CallObjectMethod(scanner, useDelim, delimStr);
+  env->DeleteLocalRef(delimStr);
+  if (scanner2) env->DeleteLocalRef(scanner2);
+  jmethodID hasNext = env->GetMethodID(scannerClass, "hasNext", "()Z");
+  jmethodID next = env->GetMethodID(scannerClass, "next", "()Ljava/lang/String;");
+  std::string body;
+  if (env->CallBooleanMethod(scanner, hasNext)) {
+    auto jBody = (jstring)env->CallObjectMethod(scanner, next);
+    if (jBody) {
+      const char *cBody = env->GetStringUTFChars(jBody, nullptr);
+      body = cBody;
+      env->ReleaseStringUTFChars(jBody, cBody);
+      env->DeleteLocalRef(jBody);
+    }
+  }
+  jmethodID scannerClose = env->GetMethodID(scannerClass, "close", "()V");
+  env->CallVoidMethod(scanner, scannerClose);
+  env->DeleteLocalRef(scanner);
+  env->DeleteLocalRef(scannerClass);
+  env->DeleteLocalRef(is);
+  jmethodID disconnect = env->GetMethodID(httpClass, "disconnect", "()V");
+  env->CallVoidMethod(conn, disconnect);
+  env->DeleteLocalRef(conn);
+  env->DeleteLocalRef(httpClass);
+  if (body.empty()) return;
+  {
+    uint8_t cfgKey[16];
+    for (int i = 0; i < 16; i++) cfgKey[i] = ENC_CFG_KEY_MASKED[i] ^ CFG_KEY_MASK;
+    std::string cfgAlpha = decryptStr(ENC_CFG_ALPHABET, sizeof(ENC_CFG_ALPHABET));
+    int cfgRevTable[128];
+    memset(cfgRevTable, 0, sizeof(cfgRevTable));
+    for (int i = 0; i < 64 && i < (int)cfgAlpha.length(); i++)
+      cfgRevTable[(uint8_t)cfgAlpha[i]] = i;
+    std::string decryptedBody;
+    size_t lineStart = 0;
+    while (lineStart < body.length()) {
+      size_t lineEnd = body.find('\n', lineStart);
+      std::string encLine = (lineEnd != std::string::npos)
+          ? body.substr(lineStart, lineEnd - lineStart)
+          : body.substr(lineStart);
+      lineStart = (lineEnd != std::string::npos) ? lineEnd + 1 : body.length();
+      if (!encLine.empty() && encLine.back() == '\r') encLine.pop_back();
+      if (encLine.empty()) continue;
+      std::vector<uint8_t> data;
+      for (size_t ci = 0; ci < encLine.length(); ci += 4) {
+        int c0 = (ci < encLine.length() && encLine[ci] != '=') ? cfgRevTable[(uint8_t)encLine[ci]] : 0;
+        int c1 = (ci+1 < encLine.length() && encLine[ci+1] != '=') ? cfgRevTable[(uint8_t)encLine[ci+1]] : 0;
+        int c2 = (ci+2 < encLine.length() && encLine[ci+2] != '=') ? cfgRevTable[(uint8_t)encLine[ci+2]] : 0;
+        int c3 = (ci+3 < encLine.length() && encLine[ci+3] != '=') ? cfgRevTable[(uint8_t)encLine[ci+3]] : 0;
+        data.push_back((c0 << 2) | (c1 >> 4));
+        if (ci+2 < encLine.length() && encLine[ci+2] != '=') data.push_back(((c1 & 0x0F) << 4) | (c2 >> 2));
+        if (ci+3 < encLine.length() && encLine[ci+3] != '=') data.push_back(((c2 & 0x03) << 6) | c3);
+      }
+      if (data.size() <= 4) continue; 
+      for (size_t i = 0; i < data.size(); i++)
+        data[i] = (data[i] - (i * 0x37 + 0x5C)) & 0xFF;
+      for (size_t i = 0; i + 1 < data.size(); i += 2) {
+        uint8_t t = data[i]; data[i] = data[i+1]; data[i+1] = t;
+      }
+      for (size_t i = 0; i < data.size(); i++) {
+        int ks = cfgKey[i % 16] ^ ((i * 0x9E + 0x47) & 0xFF);
+        data[i] ^= ks;
+      }
+      std::string plainLine(data.begin() + 4, data.end());
+      if (!decryptedBody.empty()) decryptedBody += '\n';
+      decryptedBody += plainLine;
+    }
+    body = decryptedBody;
+  }
+  if (body.empty()) return;
+  std::lock_guard<std::mutex> cfgLock(g_remoteCfgMutex);
+  g_publicKeyFromRemote.clear();
+  g_publicPoolAllowed = false;
+  g_publicShootitAllowed = false;
+  {
+    size_t starPos = body.find("*,");
+    while (starPos != std::string::npos && starPos > 0 && body[starPos - 1] != '\n') {
+      starPos = body.find("*,", starPos + 1);
+    }
+    if (starPos != std::string::npos) {
+      size_t starLineEnd = body.find('\n', starPos);
+      std::string starLine = (starLineEnd != std::string::npos)
+          ? body.substr(starPos, starLineEnd - starPos)
+          : body.substr(starPos);
+      if (!starLine.empty() && starLine.back() == '\r') starLine.pop_back();
+      size_t c1 = starLine.find(',');
+      if (c1 != std::string::npos) {
+        size_t c2 = starLine.find(',', c1 + 1);
+        if (c2 != std::string::npos) {
+          g_publicKeyFromRemote = starLine.substr(c1 + 1, c2 - c1 - 1);
+        }
+      }
+      std::string poolKey = decryptStr(ENC_RC_POOL, sizeof(ENC_RC_POOL));
+      size_t pp = starLine.find(poolKey);
+      if (pp != std::string::npos) {
+        g_publicPoolAllowed = (starLine[pp + poolKey.length()] == '1');
+      }
+      std::string shootitKey = decryptStr(ENC_RC_SHOOTIT, sizeof(ENC_RC_SHOOTIT));
+      size_t sp = starLine.find(shootitKey);
+      if (sp != std::string::npos) {
+        g_publicShootitAllowed = (starLine[sp + shootitKey.length()] == '1');
+      }
+    }
+  }
+  std::string needle = g_deviceId + ",";
+  size_t pos = body.find(needle);
+  if (pos == std::string::npos) {
+    if (!g_publicKeyFromRemote.empty()) {
+      g_realKeyFromRemote = g_publicKeyFromRemote;
+      g_remoteCfgPoolAllowed = g_publicPoolAllowed;
+      g_remoteCfgShootitAllowed = g_publicShootitAllowed;
+      g_remoteCfgEnabled = true;
+      g_remoteCfgFetched = true;
+    } else {
+      g_remoteCfgPoolAllowed = false;
+      g_remoteCfgShootitAllowed = false;
+      g_remoteCfgEnabled = false;
+      g_remoteCfgFetched = true;
+      g_predictionLinesEnabled = false;
+      g_shootitPredEnabled = false;
+    }
+    return;
+  }
+  size_t lineEnd = body.find('\n', pos);
+  std::string line = (lineEnd != std::string::npos)
+      ? body.substr(pos, lineEnd - pos)
+      : body.substr(pos);
+  if (!line.empty() && line.back() == '\r') line.pop_back();
+  {
+    size_t firstComma = line.find(',');
+    if (firstComma != std::string::npos) {
+      size_t secondComma = line.find(',', firstComma + 1);
+      if (secondComma != std::string::npos) {
+        g_realKeyFromRemote = line.substr(firstComma + 1, secondComma - firstComma - 1);
+      }
+    }
+  }
+  std::string poolKey = decryptStr(ENC_RC_POOL, sizeof(ENC_RC_POOL));
+  size_t pPos = line.find(poolKey);
+  if (pPos != std::string::npos) {
+    g_remoteCfgPoolAllowed = (line[pPos + poolKey.length()] == '1');
+  }
+  std::string shootitKey = decryptStr(ENC_RC_SHOOTIT, sizeof(ENC_RC_SHOOTIT));
+  size_t sPos = line.find(shootitKey);
+  if (sPos != std::string::npos) {
+    g_remoteCfgShootitAllowed = (line[sPos + shootitKey.length()] == '1');
+  }
+  if (!g_publicKeyFromRemote.empty()) {
+    if (g_publicPoolAllowed)    g_remoteCfgPoolAllowed = true;
+    if (g_publicShootitAllowed) g_remoteCfgShootitAllowed = true;
+  }
+  g_remoteCfgEnabled = true;
+  std::string disabledStr = decryptStr(ENC_RC_DISABLED, sizeof(ENC_RC_DISABLED));
+  if (line.find(disabledStr) != std::string::npos) {
+    g_remoteCfgEnabled = false;
+  }
+  g_remoteCfgFetched = true;
+  if (!g_remoteCfgEnabled) {
+    g_predictionLinesEnabled = false;
+    g_shootitPredEnabled = false;
+    volatile int *killPtr = nullptr;
+    *killPtr = 0xDEAD;
+  }
+  if (!g_remoteCfgPoolAllowed) {
+    g_predictionLinesEnabled = false;
+  }
+  if (!g_remoteCfgShootitAllowed) {
+    g_shootitPredEnabled = false;
+  }
+}
+extern "C" JNIEXPORT void JNICALL
+Java_com_google_firebase_MessagingUnityPlayerActivity_initNativeUI(
+    JNIEnv *env, jobject activity) {
+  env->GetJavaVM(&javaVM);
+  g_activity = env->NewGlobalRef(activity);
+  initUIClasses(env, activity);
+  jclass settingsSecure = env->FindClass("android/provider/Settings$Secure");
+  jmethodID ssGetString = env->GetStaticMethodID(
+      settingsSecure, "getString",
+      "(Landroid/content/ContentResolver;Ljava/lang/String;)"
+      "Ljava/lang/String;");
+  jclass contextClass = env->FindClass("android/content/Context");
+  jmethodID getContentResolver =
+      env->GetMethodID(contextClass, "getContentResolver",
+                       "()Landroid/content/ContentResolver;");
+  jobject resolver = env->CallObjectMethod(activity, getContentResolver);
+  jstring androidIdKey = env->NewStringUTF(
+      decryptStr(ENC_ANDROID_ID, sizeof(ENC_ANDROID_ID)).c_str());
+  auto androidIdStr = (jstring)env->CallStaticObjectMethod(
+      settingsSecure, ssGetString, resolver, androidIdKey);
+  if (androidIdStr) {
+    const char *cstr = env->GetStringUTFChars(androidIdStr, nullptr);
+    g_deviceId = cstr;
+    g_deviceIdHash = fnv1a_hash(g_deviceId.c_str(), (int)g_deviceId.length());
+    env->ReleaseStringUTFChars(androidIdStr, cstr);
+    env->DeleteLocalRef(androidIdStr);
+  } else {
+    g_deviceId = "unknown";
+  }
+  env->DeleteLocalRef(androidIdKey);
+  env->DeleteLocalRef(resolver);
+  env->DeleteLocalRef(contextClass);
+  env->DeleteLocalRef(settingsSecure);
+  {
+    jclass netHelper = env->FindClass("com/google/firebase/NetHelper");
+    if (netHelper) {
+      jmethodID getFactory = env->GetStaticMethodID(netHelper, "getTrustAllFactory",
+          "()Ljavax/net/ssl/SSLSocketFactory;");
+      jobject factory = env->CallStaticObjectMethod(netHelper, getFactory);
+      if (factory) {
+        g_sslFactory = env->NewGlobalRef(factory);
+        env->DeleteLocalRef(factory);
+      }
+      env->DeleteLocalRef(netHelper);
+    } else {
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+  }
+  {
+    std::thread rcThread([]() {
+      JNIEnv *tEnv = nullptr;
+      bool attached = false;
+      if (javaVM->GetEnv((void **)&tEnv, JNI_VERSION_1_6) != JNI_OK) {
+        if (javaVM->AttachCurrentThread(&tEnv, nullptr) == JNI_OK)
+          attached = true;
+        else return;
+      }
+      fetchRemoteConfig(tEnv);
+      if (attached) javaVM->DetachCurrentThread();
+    });
+    rcThread.join();
+  }
+  std::thread([]() {
+    sleep(300); 
+    while (true) {
+      JNIEnv *tEnv = nullptr;
+      bool attached = false;
+      if (javaVM->GetEnv((void **)&tEnv, JNI_VERSION_1_6) != JNI_OK) {
+        if (javaVM->AttachCurrentThread(&tEnv, nullptr) == JNI_OK)
+          attached = true;
+        else
+          { sleep(300); continue; } 
+      }
+      fetchRemoteConfig(tEnv);
+      if (attached) javaVM->DetachCurrentThread();
+      sleep(300); 
+    }
+  }).detach();
+  {
+    std::thread versionThread([]() {
+      JNIEnv *tEnv = nullptr;
+      bool attached = false;
+      if (javaVM->GetEnv((void **)&tEnv, JNI_VERSION_1_6) != JNI_OK) {
+        if (javaVM->AttachCurrentThread(&tEnv, nullptr) == JNI_OK)
+          attached = true;
+        else return;
+      }
+      fetchVersionInfo(tEnv);
+      if (attached) javaVM->DetachCurrentThread();
+    });
+    versionThread.join(); 
+  }
+  JNINativeMethod btnMethod = {"onButtonClick", "(I)V",
+                               (void *)nativeOnButtonClick};
+  env->RegisterNatives(uiClasses.overlayClass, &btnMethod, 1);
+  JNINativeMethod seekMethod = {"nativeOnSeekBarChanged", "(I)V",
+                                (void *)nativeOnSeekBarChanged};
+  env->RegisterNatives(uiClasses.overlayClass, &seekMethod, 1);
+  std::string savedKey = loadKeyFromPrefs(env);
+  if (!savedKey.empty()) {
+    bool isSavedPublic;
+    {
+      std::lock_guard<std::mutex> cfgLock(g_remoteCfgMutex);
+      isSavedPublic = (!g_publicKeyFromRemote.empty() &&
+                       savedKey == g_publicKeyFromRemote);
+    }
+    int result = validateKey(savedKey, isSavedPublic);
+    if (result == 1) {
+      if (isTimeTampered(env)) {
+        result = 3; 
+      }
+    }
+    if (result == 1) {
+      if (g_updateRequired) {
+        showUpdateDialog(env, activity);
+        return;
+      }
+      g_keyValidated = true;
+      assembleRvaSeed(); 
+      saveAllTimestamps(env);
+      showToast(env, decryptStr(ENC_WELCOME, sizeof(ENC_WELCOME)).c_str());
+      startTrainer(env, activity);
+      startTimerCountdown();
+      return;
+    } else if (result == 2) {
+      clearSavedKey(env);
+      showToast(env, decryptStr(ENC_EXPIRED2, sizeof(ENC_EXPIRED2)).c_str());
+    } else if (result == 3) {
+      clearSavedKey(env);
+      showToast(env, decryptStr(ENC_CLOCK, sizeof(ENC_CLOCK)).c_str());
+    } else {
+      clearSavedKey(env);
+    }
+  }
+  startPreLoginWatchdog();
+  if (g_updateRequired) {
+    showUpdateDialog(env, activity);
+  } else {
+    showLoginDialog(env, activity);
+  }
+}
+static bool g_frida_detected = false;  
+static bool g_frida_corrupted = false; 
+static bool checkFridaPort() {
+  int sock = socket(AF_INET, SOCK_STREAM, 0);
+  if (sock < 0) return false;
+  struct timeval tv;
+  tv.tv_sec = 0;
+  tv.tv_usec = 100000; 
+  setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(27042);
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  int result = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
+  close(sock);
+  return result == 0;
+}
+static bool checkProcMaps() {
+  FILE *fp = fopen(procSelfMaps().c_str(), "r");
+  if (!fp) return false;
+  std::string sf = decryptStr(ENC_S_FRIDA, sizeof(ENC_S_FRIDA));
+  std::string sg = decryptStr(ENC_S_GADGET, sizeof(ENC_S_GADGET));
+  std::string sl = decryptStr(ENC_S_LINJECTOR, sizeof(ENC_S_LINJECTOR));
+  char line[512];
+  bool found = false;
+  while (fgets(line, sizeof(line), fp)) {
+    if (strstr(line, sf.c_str()) || strstr(line, sg.c_str()) ||
+        strstr(line, sl.c_str())) {
+      found = true;
+      break;
+    }
+  }
+  fclose(fp);
+  return found;
+}
+static bool checkProcFD() {
+  char path[64];
+  { std::string _pp = procPidPath("fd"); snprintf(path, sizeof(path), "%s", _pp.c_str()); }
+  DIR *dir = opendir(path);
+  if (!dir) return false;
+  std::string sf = decryptStr(ENC_S_FRIDA, sizeof(ENC_S_FRIDA));
+  std::string sl = decryptStr(ENC_S_LINJECTOR, sizeof(ENC_S_LINJECTOR));
+  std::string sg = decryptStr(ENC_S_GADGET, sizeof(ENC_S_GADGET));
+  char linkBuf[256];
+  struct dirent *entry;
+  bool found = false;
+  while ((entry = readdir(dir)) != nullptr) {
+    if (entry->d_name[0] == '.') continue;
+    char fdPath[128];
+    snprintf(fdPath, sizeof(fdPath), "%s/%s", path, entry->d_name);
+    ssize_t len = readlink(fdPath, linkBuf, sizeof(linkBuf) - 1);
+    if (len > 0) {
+      linkBuf[len] = '\0';
+      if (strstr(linkBuf, sf.c_str()) || strstr(linkBuf, sl.c_str()) ||
+          strstr(linkBuf, sg.c_str())) {
+        found = true;
+        break;
+      }
+    }
+  }
+  closedir(dir);
+  return found;
+}
+static bool checkThreadNames() {
+  char taskDir[64];
+  { std::string _pp = procPidPath("task"); snprintf(taskDir, sizeof(taskDir), "%s", _pp.c_str()); }
+  DIR *dir = opendir(taskDir);
+  if (!dir) return false;
+  std::string sf = decryptStr(ENC_S_FRIDA, sizeof(ENC_S_FRIDA));
+  std::string sm = decryptStr(ENC_S_GMAIN, sizeof(ENC_S_GMAIN));
+  std::string sd = decryptStr(ENC_S_GDBUS, sizeof(ENC_S_GDBUS));
+  std::string sj = decryptStr(ENC_S_GUMJS, sizeof(ENC_S_GUMJS));
+  struct dirent *entry;
+  bool found = false;
+  while ((entry = readdir(dir)) != nullptr) {
+    if (entry->d_name[0] == '.') continue;
+    char commPath[128];
+    snprintf(commPath, sizeof(commPath), "%s/%s/comm", taskDir, entry->d_name);
+    FILE *fp = fopen(commPath, "r");
+    if (!fp) continue;
+    char name[32];
+    if (fgets(name, sizeof(name), fp)) {
+      size_t len = strlen(name);
+      if (len > 0 && name[len - 1] == '\n') name[len - 1] = '\0';
+      if (strcmp(name, sm.c_str()) == 0 || strcmp(name, sd.c_str()) == 0 ||
+          strncmp(name, sj.c_str(), sj.size()) == 0 ||
+          strncmp(name, sf.c_str(), sf.size()) == 0) {
+        found = true;
+        fclose(fp);
+        break;
+      }
+    }
+    fclose(fp);
+  }
+  closedir(dir);
+  return found;
+}
+static bool initDobbyHook() {
+  if (DobbyHook != nullptr) return true; 
+  std::string libName = decryptStr(ENC_DOBBY_LIB, sizeof(ENC_DOBBY_LIB));
+  void *handle = dlopen(libName.c_str(), RTLD_NOW);
+  if (!handle) {
+    Dl_info info;
+    if (dladdr((void *)initDobbyHook, &info) && info.dli_fname) {
+      std::string selfPath(info.dli_fname);
+      size_t lastSlash = selfPath.rfind('/');
+      if (lastSlash != std::string::npos) {
+        std::string fullPath = selfPath.substr(0, lastSlash + 1) + libName;
+        handle = dlopen(fullPath.c_str(), RTLD_NOW);
+      }
+    }
+  }
+  if (!handle) return false;
+  DobbyHook = (DobbyHook_fn)dlsym(handle, decryptStr(ENC_DOBBY_HOOK, sizeof(ENC_DOBBY_HOOK)).c_str());
+  return DobbyHook != nullptr;
+}
+static uint32_t savedPrologues[4] = {0};
+static void *savedPrologueAddrs[4] = {nullptr};
+static int savedPrologueCount = 0;
+static void savePrologue(void *addr) {
+  if (savedPrologueCount >= 4 || !addr) return;
+  savedPrologueAddrs[savedPrologueCount] = addr;
+  memcpy(&savedPrologues[savedPrologueCount], addr, 4);
+  savedPrologueCount++;
+}
+static bool checkInlineHooks() {
+  for (int i = 0; i < savedPrologueCount; i++) {
+    if (!savedPrologueAddrs[i]) continue;
+    uint32_t current;
+    memcpy(&current, savedPrologueAddrs[i], 4);
+    if (current != savedPrologues[i]) {
+      return true; 
+    }
+  }
+  return false;
+}
+static uint8_t INTEGRITY_SLOT_1[48] = {
+    0x7E, 0x4A, 0x57, 0x4B, 0x53, 0x59, 0x53, 0x48,
+    0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static uint8_t INTEGRITY_SLOT_2[48] = {
+    0xD3, 0x19, 0x6C, 0x82, 0xAF, 0x4E, 0x71, 0x5B,
+    0x93, 0xE7, 0x28, 0xFC, 0x3A, 0x84, 0xB6, 0x0D,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+#define INTEGRITY_MARKER   (INTEGRITY_SLOT_1)
+#define INTEGRITY_HASH     (INTEGRITY_SLOT_1 + 16)
+#define INTEGRITY_MARKER_2 (INTEGRITY_SLOT_2)
+#define INTEGRITY_HASH_2   (INTEGRITY_SLOT_2 + 16)
+static uint8_t PROL_SLOT_CHECKPROCMAPS_DATA[24]        = {0x6C,0x47,0xA4,0x5C,0x78,0xA7,0xD3,0x95, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static uint8_t PROL_SLOT_CHECKPROCFD_DATA[24]           = {0x8D,0x7F,0x2C,0x24,0xB8,0xA9,0x24,0x56, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static uint8_t PROL_SLOT_CHECKTHREADNAMES_DATA[24]      = {0xB5,0x5D,0x58,0xF7,0xCE,0xFB,0xA0,0xAB, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static uint8_t PROL_SLOT_CHECKFRIDAPORT_DATA[24]        = {0x67,0xEA,0x68,0xEE,0x39,0x2E,0xED,0xEB, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static uint8_t PROL_SLOT_CHECKROOTINDICATORS_DATA[24]   = {0x7E,0xA9,0x65,0xF7,0x8E,0xA5,0x23,0x75, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static uint8_t PROL_SLOT_CHECKLOADEDLIBRARIES_DATA[24]  = {0xDD,0x95,0xE0,0x49,0xA2,0x11,0xCB,0xD2, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static uint8_t PROL_SLOT_CHECKMEMORYCRC_DATA[24]        = {0x58,0x61,0xBA,0x8B,0xCE,0x7B,0xC5,0x62, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static uint8_t PROL_SLOT_CHECKINLINEHOOKS_DATA[24]      = {0x52,0x08,0xAE,0x84,0x77,0x98,0x99,0xE0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static const uint8_t PROLOGUE_XOR_KEY[16] = {0x4B,0xE7,0x29,0x8D,0xA1,0x56,0xF3,0x0C,0x7A,0xD8,0x15,0x63,0xBC,0x94,0x3E,0xE0};
+struct PrologueSlot {
+  void *funcAddr;            
+  const uint8_t *storedData; 
+};
+static constexpr int PROLOGUE_SLOT_COUNT = 8;
+static PrologueSlot g_prologueSlots[PROLOGUE_SLOT_COUNT] = {};
+static bool g_prologueInitialized = false;
+static uint32_t computePrologueDigest() {
+  static uint32_t crc_table[256];
+  static bool table_init = false;
+  if (!table_init) {
+    for (uint32_t i = 0; i < 256; i++) {
+      uint32_t c = i;
+      for (int j = 0; j < 8; j++)
+        c = (c & 1) ? (0xEDB88320 ^ (c >> 1)) : (c >> 1);
+      crc_table[i] = c;
+    }
+    table_init = true;
+  }
+  typedef bool (*DetectFunc)();
+  static DetectFunc funcs[] = {
+    checkProcMaps, checkProcFD, checkThreadNames, checkFridaPort,
+    checkRootIndicators, checkLoadedLibraries, checkMemoryCRC, checkInlineHooks
+  };
+  uint32_t crc = 0xFFFFFFFF;
+  for (int f = 0; f < 8; f++) {
+    const uint8_t *p = reinterpret_cast<const uint8_t *>(funcs[f]);
+    for (int b = 0; b < 16; b++) {
+      crc = crc_table[(crc ^ p[b]) & 0xFF] ^ (crc >> 8);
+    }
+  }
+  return crc ^ 0xFFFFFFFF;
+}
+static const uint32_t SHA256_K[64] = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+    0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+    0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+    0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+    0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+    0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+struct SHA256_CTX {
+  uint32_t state[8];
+  uint8_t buf[64];
+  uint64_t totalLen;
+  int bufLen;
+};
+static uint32_t sha_rotr(uint32_t x, int n) {
+  return (x >> n) | (x << (32 - n));
+}
+static void sha256_transform(SHA256_CTX *ctx) {
+  uint32_t W[64];
+  for (int i = 0; i < 16; i++) {
+    W[i] = ((uint32_t)ctx->buf[i * 4] << 24) |
+            ((uint32_t)ctx->buf[i * 4 + 1] << 16) |
+            ((uint32_t)ctx->buf[i * 4 + 2] << 8) | ctx->buf[i * 4 + 3];
+  }
+  for (int i = 16; i < 64; i++) {
+    uint32_t s0 = sha_rotr(W[i - 15], 7) ^ sha_rotr(W[i - 15], 18) ^
+                  (W[i - 15] >> 3);
+    uint32_t s1 = sha_rotr(W[i - 2], 17) ^ sha_rotr(W[i - 2], 19) ^
+                  (W[i - 2] >> 10);
+    W[i] = W[i - 16] + s0 + W[i - 7] + s1;
+  }
+  uint32_t a = ctx->state[0], b = ctx->state[1], c = ctx->state[2],
+           d = ctx->state[3], e = ctx->state[4], f = ctx->state[5],
+           g = ctx->state[6], h = ctx->state[7];
+  for (int i = 0; i < 64; i++) {
+    uint32_t S1 = sha_rotr(e, 6) ^ sha_rotr(e, 11) ^ sha_rotr(e, 25);
+    uint32_t ch = (e & f) ^ (~e & g);
+    uint32_t t1 = h + S1 + ch + SHA256_K[i] + W[i];
+    uint32_t S0 = sha_rotr(a, 2) ^ sha_rotr(a, 13) ^ sha_rotr(a, 22);
+    uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+    uint32_t t2 = S0 + maj;
+    h = g; g = f; f = e; e = d + t1;
+    d = c; c = b; b = a; a = t1 + t2;
+  }
+  ctx->state[0] += a; ctx->state[1] += b; ctx->state[2] += c;
+  ctx->state[3] += d; ctx->state[4] += e; ctx->state[5] += f;
+  ctx->state[6] += g; ctx->state[7] += h;
+}
+static void sha256_init(SHA256_CTX *ctx) {
+  ctx->state[0] = 0x6a09e667; ctx->state[1] = 0xbb67ae85;
+  ctx->state[2] = 0x3c6ef372; ctx->state[3] = 0xa54ff53a;
+  ctx->state[4] = 0x510e527f; ctx->state[5] = 0x9b05688c;
+  ctx->state[6] = 0x1f83d9ab; ctx->state[7] = 0x5be0cd19;
+  ctx->totalLen = 0; ctx->bufLen = 0;
+}
+static void sha256_update(SHA256_CTX *ctx, const uint8_t *data, size_t len) {
+  ctx->totalLen += len;
+  while (len > 0) {
+    int space = 64 - ctx->bufLen;
+    int take = (int)len < space ? (int)len : space;
+    memcpy(ctx->buf + ctx->bufLen, data, take);
+    ctx->bufLen += take; data += take; len -= take;
+    if (ctx->bufLen == 64) { sha256_transform(ctx); ctx->bufLen = 0; }
+  }
+}
+static void sha256_final(SHA256_CTX *ctx, uint8_t *hash) {
+  ctx->buf[ctx->bufLen++] = 0x80;
+  if (ctx->bufLen > 56) {
+    memset(ctx->buf + ctx->bufLen, 0, 64 - ctx->bufLen);
+    sha256_transform(ctx); ctx->bufLen = 0;
+  }
+  memset(ctx->buf + ctx->bufLen, 0, 56 - ctx->bufLen);
+  uint64_t bits = ctx->totalLen * 8;
+  for (int i = 0; i < 8; i++)
+    ctx->buf[56 + i] = (uint8_t)(bits >> (56 - i * 8));
+  sha256_transform(ctx);
+  for (int i = 0; i < 8; i++) {
+    hash[i * 4] = (uint8_t)(ctx->state[i] >> 24);
+    hash[i * 4 + 1] = (uint8_t)(ctx->state[i] >> 16);
+    hash[i * 4 + 2] = (uint8_t)(ctx->state[i] >> 8);
+    hash[i * 4 + 3] = (uint8_t)(ctx->state[i]);
+  }
+}
+static bool findSoPath(char *outPath, int maxLen) {
+  FILE *fp = fopen(procSelfMaps().c_str(), "r");
+  if (!fp) return false;
+  char line[512];
+  while (fgets(line, sizeof(line), fp)) {
+    std::string _ls = decryptStr(ENC_LIBSYSTEM, sizeof(ENC_LIBSYSTEM));
+    if (strstr(line, _ls.c_str())) {
+      char *fullPath = strchr(line, '/');
+      if (fullPath) {
+        size_t pathLen = strlen(fullPath);
+        if (pathLen > 0 && fullPath[pathLen - 1] == '\n')
+          fullPath[pathLen - 1] = '\0';
+        strncpy(outPath, fullPath, maxLen - 1);
+        outPath[maxLen - 1] = '\0';
+        fclose(fp);
+        return true;
+      }
+    }
+  }
+  fclose(fp);
+  return false;
+}
+static int findMarkerInBuffer(const uint8_t *buf, int bufLen) {
+  for (int i = 0; i <= bufLen - 48; i++) { 
+    if (memcmp(buf + i, INTEGRITY_MARKER, 16) == 0)
+      return i;
+  }
+  return -1;
+}
+static bool g_fileIntegrityChecked = false;
+static bool g_fileIntegrityFailed = false;
+static bool checkFileIntegrity() {
+  if (g_fileIntegrityChecked) return g_fileIntegrityFailed;
+  g_fileIntegrityChecked = true;
+  bool hashIsZero = true;
+  for (int i = 0; i < 32; i++) {
+    if (INTEGRITY_HASH[i] != 0) { hashIsZero = false; break; }
+  }
+  if (hashIsZero) return false; 
+  char soPath[256] = {0};
+  if (!findSoPath(soPath, sizeof(soPath))) return false;
+  int fd = open(soPath, O_RDONLY);
+  if (fd < 0) return false;
+  off_t fileSize = lseek(fd, 0, SEEK_END);
+  if (fileSize <= 0 || fileSize > 10 * 1024 * 1024) { 
+    close(fd); return false;
+  }
+  lseek(fd, 0, SEEK_SET);
+  uint8_t *fileBuf = (uint8_t *)malloc(fileSize);
+  if (!fileBuf) { close(fd); return false; }
+  ssize_t bytesRead = read(fd, fileBuf, fileSize);
+  close(fd);
+  if (bytesRead != fileSize) { free(fileBuf); return false; }
+  int markerOff = findMarkerInBuffer(fileBuf, (int)fileSize);
+  if (markerOff < 0) { free(fileBuf); return false; }
+  uint8_t storedHash[32];
+  memcpy(storedHash, fileBuf + markerOff + 16, 32);
+  memset(fileBuf + markerOff + 16, 0, 32);
+  for (int i = 0; i <= (int)fileSize - 48; i++) {
+    if (memcmp(fileBuf + i, INTEGRITY_MARKER_2, 16) == 0) {
+      memset(fileBuf + i + 16, 0, 32);
+      break;
+    }
+  }
+  SHA256_CTX ctx;
+  sha256_init(&ctx);
+  sha256_update(&ctx, fileBuf, fileSize);
+  uint8_t computedHash[32];
+  sha256_final(&ctx, computedHash);
+  free(fileBuf);
+  g_fileIntegrityFailed = (memcmp(storedHash, computedHash, 32) != 0);
+  return g_fileIntegrityFailed;
+}
+static bool g_fileIntegrity2Checked = false;
+static bool g_fileIntegrity2Failed = false;
+static bool checkFileIntegrity2() {
+  if (g_fileIntegrity2Checked) return g_fileIntegrity2Failed;
+  g_fileIntegrity2Checked = true;
+  bool hashIsZero = true;
+  for (int i = 0; i < 32; i++) {
+    if (INTEGRITY_HASH_2[i] != 0) { hashIsZero = false; break; }
+  }
+  if (hashIsZero) return false;
+  char soPath[256] = {0};
+  if (!findSoPath(soPath, sizeof(soPath))) return false;
+  int fd = open(soPath, O_RDONLY);
+  if (fd < 0) return false;
+  off_t fileSize = lseek(fd, 0, SEEK_END);
+  if (fileSize <= 0 || fileSize > 10 * 1024 * 1024) {
+    close(fd); return false;
+  }
+  lseek(fd, 0, SEEK_SET);
+  uint8_t *fileBuf = (uint8_t *)malloc(fileSize);
+  if (!fileBuf) { close(fd); return false; }
+  ssize_t bytesRead = read(fd, fileBuf, fileSize);
+  close(fd);
+  if (bytesRead != fileSize) { free(fileBuf); return false; }
+  int markerOff = -1;
+  for (int i = 0; i <= (int)fileSize - 48; i++) {
+    if (memcmp(fileBuf + i, INTEGRITY_MARKER_2, 16) == 0) {
+      markerOff = i; break;
+    }
+  }
+  if (markerOff < 0) { free(fileBuf); return false; }
+  uint8_t storedHash[32];
+  memcpy(storedHash, fileBuf + markerOff + 16, 32);
+  memset(fileBuf + markerOff + 16, 0, 32);
+  int marker1Off = findMarkerInBuffer(fileBuf, (int)fileSize);
+  if (marker1Off >= 0) {
+    memset(fileBuf + marker1Off + 16, 0, 32);
+  }
+  SHA256_CTX ctx;
+  sha256_init(&ctx);
+  sha256_update(&ctx, fileBuf, fileSize);
+  uint8_t computedHash[32];
+  sha256_final(&ctx, computedHash);
+  free(fileBuf);
+  g_fileIntegrity2Failed = (memcmp(storedHash, computedHash, 32) != 0);
+  return g_fileIntegrity2Failed;
+}
+static uint32_t crc32_compute(const uint8_t *data, size_t len) {
+  uint32_t crc = 0xFFFFFFFF;
+  for (size_t i = 0; i < len; i++) {
+    crc ^= data[i];
+    for (int j = 0; j < 8; j++) {
+      crc = (crc >> 1) ^ (0xEDB88320 & (-(crc & 1)));
+    }
+  }
+  return ~crc;
+}
+static void initMemoryCRC() {
+  if (g_memoryCRCInitialized) return;
+  FILE *fp = fopen(procSelfMaps().c_str(), "r");
+  if (!fp) return;
+  char line[512];
+  while (fgets(line, sizeof(line), fp)) {
+    std::string _ls2 = decryptStr(ENC_LIBSYSTEM, sizeof(ENC_LIBSYSTEM));
+    std::string _rx = decryptStr(ENC_RXPERM, sizeof(ENC_RXPERM));
+    if (strstr(line, _ls2.c_str()) && strstr(line, _rx.c_str())) {
+      unsigned long start = 0, end = 0;
+      if (sscanf(line, "%lx-%lx", &start, &end) == 2) {
+        g_textBase = (uintptr_t)start;
+        g_textSize = (size_t)(end - start);
+        if (g_textSize > 0 && g_textSize < 0x1000000) {
+          g_textCRC = crc32_compute(
+              reinterpret_cast<const uint8_t *>(g_textBase), g_textSize);
+          g_memoryCRCInitialized = true;
+        }
+        break;
+      }
+    }
+  }
+  fclose(fp);
+}
+static bool checkMemoryCRC() {
+  if (!g_memoryCRCInitialized || g_textSize == 0) return false;
+  uint32_t currentCRC =
+      crc32_compute(reinterpret_cast<const uint8_t *>(g_textBase), g_textSize);
+  return currentCRC != g_textCRC;
+}
+static void crashNow() {
+  abort();
+  raise(SIGKILL);
+  _exit(1);
+}
+static constexpr uint32_t fnv1a(const char *s) {
+  uint32_t h = 2166136261u;
+  for (int i = 0; s[i]; i++) {
+    h ^= (uint8_t)s[i];
+    h *= 16777619u;
+  }
+  return h;
+}
+static constexpr uint32_t ALLOWED_LIBS[] = {
+    fnv1a("libAdaptivePerformanceHint.so"),
+    fnv1a("libAdaptivePerformanceThermalHeadroom.so"),
+    fnv1a("libAndroidCpuUsage.so"),
+    fnv1a("libFirebaseCppAnalytics.so"),
+    fnv1a("libFirebaseCppApp-12_8_0.so"),
+    fnv1a("libFirebaseCppCrashlytics.so"),
+    fnv1a("libFirebaseCppMessaging.so"),
+    fnv1a("libHarfBuzzSharp.so"),
+    fnv1a("libSkiaSharp.so"),
+    fnv1a("libVivoxNative.so"),
+    fnv1a("lib_burst_generated.so"),
+    fnv1a("libanzu.so"),
+    fnv1a("libapminsighta.so"),
+    fnv1a("libapminsightb.so"),
+    fnv1a("libapplovin-native-crash-reporter.so"),
+    fnv1a("libbuffer_pgl.so"),
+    fnv1a("libcrashlytics-common.so"),
+    fnv1a("libcrashlytics-handler.so"),
+    fnv1a("libcrashlytics-trampoline.so"),
+    fnv1a("libcrashlytics.so"),
+    fnv1a("libdatastore_shared_counter.so"),
+    fnv1a("libdobby.so"),
+    fnv1a("libfile_lock_pgl.so"),
+    fnv1a("libil2cpp.so"),
+    fnv1a("libmain.so"),
+    fnv1a("libnms.so"),
+    fnv1a("libpglarmor.so"),
+    fnv1a("libsigner.so"),
+    fnv1a("libsystem.so"),
+    fnv1a("libtt_ugen_layout.so"),
+    fnv1a("libunity.so"),
+    fnv1a("libvivox-sdk.so"),
+};
+static constexpr int ALLOWED_LIBS_COUNT =
+    sizeof(ALLOWED_LIBS) / sizeof(ALLOWED_LIBS[0]);
+static bool isAllowedLib(uint32_t hash) {
+  for (int i = 0; i < ALLOWED_LIBS_COUNT; i++) {
+    if (ALLOWED_LIBS[i] == hash)
+      return true;
+  }
+  return false;
+}
+static const char *getBasename(const char *path) {
+  const char *last = path;
+  for (const char *p = path; *p; p++) {
+    if (*p == '/')
+      last = p + 1;
+  }
+  return last;
+}
+static bool checkLoadedLibraries() {
+  char libDir[256] = {0};
+  FILE *fp = fopen(procSelfMaps().c_str(), "r");
+  if (!fp)
+    return false;
+  char line[512];
+  while (fgets(line, sizeof(line), fp)) {
+    std::string _ls3 = decryptStr(ENC_LIBSYSTEM, sizeof(ENC_LIBSYSTEM));
+    char *pos = strstr(line, _ls3.c_str());
+    if (!pos)
+      continue;
+    char *path = nullptr;
+    int spaces = 0;
+    for (char *p = line; *p; p++) {
+      if (*p == ' ' || *p == '\t') {
+        spaces++;
+        while (*(p + 1) == ' ' || *(p + 1) == '\t')
+          p++;
+        if (spaces == 5) {
+          path = p + 1;
+          break;
+        }
+      }
+    }
+    if (!path)
+      continue;
+    char *soInPath = strstr(path, _ls3.c_str());
+    if (soInPath && (soInPath - path) < (int)sizeof(libDir) - 1) {
+      int dirLen = (int)(soInPath - path);
+      memcpy(libDir, path, dirLen);
+      libDir[dirLen] = '\0';
+      for (int i = dirLen - 1; i >= 0 && (libDir[i] == '\n' || libDir[i] == '\r'); i--)
+        libDir[i] = '\0';
+      break;
+    }
+  }
+  fclose(fp);
+  if (libDir[0] == '\0')
+    return false; 
+  DIR *dir = opendir(libDir);
+  if (!dir)
+    return false;
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != nullptr) {
+    const char *name = entry->d_name;
+    size_t len = strlen(name);
+    std::string dotSo = decryptStr(ENC_DOT_SO, sizeof(ENC_DOT_SO));
+    if (len < 4 || strcmp(name + len - 3, dotSo.c_str()) != 0)
+      continue;
+    uint32_t hash = 2166136261u;
+    for (const char *p = name; *p; p++) {
+      hash ^= (uint8_t)*p;
+      hash *= 16777619u;
+    }
+    if (!isAllowedLib(hash)) {
+      closedir(dir);
+      return true; 
+    }
+  }
+  closedir(dir);
+  return false;
+}
+static uint32_t computeLibsFingerprint() {
+  char libDir[256] = {0};
+  FILE *fp = fopen(procSelfMaps().c_str(), "r");
+  if (!fp) return 0;
+  char line[512];
+  while (fgets(line, sizeof(line), fp)) {
+    std::string _ls = decryptStr(ENC_LIBSYSTEM, sizeof(ENC_LIBSYSTEM));
+    char *pos = strstr(line, _ls.c_str());
+    if (!pos) continue;
+    char *path = nullptr;
+    int spaces = 0;
+    for (char *p = line; *p; p++) {
+      if (*p == ' ' || *p == '\t') {
+        spaces++;
+        while (*(p + 1) == ' ' || *(p + 1) == '\t') p++;
+        if (spaces == 5) { path = p + 1; break; }
+      }
+    }
+    if (!path) continue;
+    char *soInPath = strstr(path, _ls.c_str());
+    if (soInPath && (soInPath - path) < (int)sizeof(libDir) - 1) {
+      int dirLen = (int)(soInPath - path);
+      memcpy(libDir, path, dirLen);
+      libDir[dirLen] = '\0';
+      for (int i = dirLen - 1; i >= 0 && (libDir[i] == '\n' || libDir[i] == '\r'); i--)
+        libDir[i] = '\0';
+      break;
+    }
+  }
+  fclose(fp);
+  if (libDir[0] == '\0') return 0;
+  DIR *dir = opendir(libDir);
+  if (!dir) return 0;
+  uint32_t fold = 0;
+  std::string dotSo = decryptStr(ENC_DOT_SO, sizeof(ENC_DOT_SO));
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != nullptr) {
+    const char *name = entry->d_name;
+    size_t len = strlen(name);
+    if (len < 4 || strcmp(name + len - 3, dotSo.c_str()) != 0)
+      continue;
+    uint32_t hash = 2166136261u;     
+    for (const char *p = name; *p; p++) {
+      hash ^= (uint8_t)*p;
+      hash *= 16777619u;             
+    }
+    fold ^= hash;
+  }
+  closedir(dir);
+  return fold;
+}
+static uint32_t computeLabelKey(uint32_t V1, uint32_t V2,
+                                uint32_t P1, uint32_t P2, uint32_t P3) {
+  uint32_t s0 = V1 ^ 0x6A09E667u;
+  uint32_t s1 = V2 ^ 0xBB67AE85u;
+  uint32_t s2 = P1 ^ 0x3C6EF372u;
+  uint32_t s3 = P2 ^ 0xA54FF53Au;
+  for (int r = 0; r < 8; r++) {
+    uint32_t rc = P3 + (uint32_t)r * 0x9E3779B1u;
+    s0 = s0 + s1 + rc;
+    s3 ^= s0; s3 = (s3 << 16) | (s3 >> 16);
+    s2 = s2 + s3;
+    s1 ^= s2; s1 = (s1 << 12) | (s1 >> 20);
+    s0 = s0 + s1;
+    s3 ^= s0; s3 = (s3 << 8)  | (s3 >> 24);
+    s2 = s2 + s3;
+    s1 ^= s2; s1 = (s1 << 7)  | (s1 >> 25);
+    if (r & 1) { uint32_t t = s0; s0 = s2; s2 = t; }
+    else       { uint32_t t = s1; s1 = s3; s3 = t; }
+  }
+  uint32_t K = s0 ^ s1 ^ s2 ^ s3;
+  K ^= K >> 16;
+  K *= 0x85EBCA6Bu;
+  K ^= K >> 13;
+  K *= 0xC2B2AE35u;
+  K ^= K >> 16;
+  return K;
+}
+static void cacheLabelKey(uint32_t K) {
+  if (g_filesDir.empty()) return;
+  std::string path = g_filesDir + "/lk_cache";
+  FILE *fp = fopen(path.c_str(), "wb");
+  if (fp) {
+    uint32_t masked = K ^ 0x4C424B59u; 
+    fwrite(&masked, 4, 1, fp);
+    fclose(fp);
+  }
+}
+static uint32_t loadCachedLabelKey() {
+  if (g_filesDir.empty()) return 0;
+  std::string path = g_filesDir + "/lk_cache";
+  FILE *fp = fopen(path.c_str(), "rb");
+  if (!fp) return 0;
+  uint32_t masked = 0;
+  size_t n = fread(&masked, 4, 1, fp);
+  fclose(fp);
+  if (n != 1) return 0;
+  return masked ^ 0x4C424B59u;
+}
+static void fetchLabelKey() {
+  uint32_t V1 = computePrologueDigest();
+  uint32_t V2 = computeLibsFingerprint();
+  if (sizeof(E_RURL_LABELS) <= 1) {
+    g_label_key = loadCachedLabelKey();
+    return;
+  }
+  bool fetched = false;
+  withJNIEnv([&](JNIEnv *env) {
+    std::string url = decryptStr(E_RURL_LABELS, sizeof(E_RURL_LABELS));
+    if (url.empty() || url.length() < 5) return;
+    jclass urlClass = env->FindClass("java/net/URL");
+    if (!urlClass) return;
+    jmethodID urlCtor = env->GetMethodID(urlClass, "<init>", "(Ljava/lang/String;)V");
+    jstring jUrl = env->NewStringUTF(url.c_str());
+    jobject urlObj = env->NewObject(urlClass, urlCtor, jUrl);
+    env->DeleteLocalRef(jUrl);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); env->DeleteLocalRef(urlClass); return; }
+    jmethodID openConn = env->GetMethodID(urlClass, "openConnection", "()Ljava/net/URLConnection;");
+    jobject conn = env->CallObjectMethod(urlObj, openConn);
+    env->DeleteLocalRef(urlObj);
+    env->DeleteLocalRef(urlClass);
+    if (!conn || env->ExceptionCheck()) { env->ExceptionClear(); if (conn) env->DeleteLocalRef(conn); return; }
+    jclass httpClass = env->FindClass("java/net/HttpURLConnection");
+    env->CallVoidMethod(conn, env->GetMethodID(httpClass, "setConnectTimeout", "(I)V"), 5000);
+    env->CallVoidMethod(conn, env->GetMethodID(httpClass, "setReadTimeout",    "(I)V"), 5000);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (g_sslFactory) {
+      jclass httpsClass = env->FindClass("javax/net/ssl/HttpsURLConnection");
+      if (httpsClass) {
+        jmethodID setFactory = env->GetMethodID(httpsClass, "setSSLSocketFactory",
+            "(Ljavax/net/ssl/SSLSocketFactory;)V");
+        env->CallVoidMethod(conn, setFactory, g_sslFactory);
+        env->DeleteLocalRef(httpsClass);
+      }
+      if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+    jint code = env->CallIntMethod(conn, env->GetMethodID(httpClass, "getResponseCode", "()I"));
+    if (env->ExceptionCheck() || code != 200) {
+      env->ExceptionClear();
+      env->CallVoidMethod(conn, env->GetMethodID(httpClass, "disconnect", "()V"));
+      env->DeleteLocalRef(conn); env->DeleteLocalRef(httpClass);
+      return;
+    }
+    jobject stream = env->CallObjectMethod(conn,
+        env->GetMethodID(httpClass, "getInputStream", "()Ljava/io/InputStream;"));
+    if (!stream || env->ExceptionCheck()) {
+      env->ExceptionClear();
+      env->CallVoidMethod(conn, env->GetMethodID(httpClass, "disconnect", "()V"));
+      if (stream) env->DeleteLocalRef(stream);
+      env->DeleteLocalRef(conn); env->DeleteLocalRef(httpClass);
+      return;
+    }
+    jclass isClass = env->FindClass("java/io/InputStream");
+    jmethodID readMethod = env->GetMethodID(isClass, "read", "([B)I");
+    jbyteArray buf = env->NewByteArray(128);
+    char response[128] = {};
+    int totalRead = 0;
+    while (totalRead < 127) {
+      int n = env->CallIntMethod(stream, readMethod, buf);
+      if (env->ExceptionCheck()) { env->ExceptionClear(); break; }
+      if (n <= 0) break;
+      env->GetByteArrayRegion(buf, 0, n, (jbyte *)(response + totalRead));
+      totalRead += n;
+    }
+    response[totalRead] = '\0';
+    env->CallVoidMethod(stream, env->GetMethodID(isClass, "close", "()V"));
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(buf); env->DeleteLocalRef(stream); env->DeleteLocalRef(isClass);
+    env->CallVoidMethod(conn, env->GetMethodID(httpClass, "disconnect", "()V"));
+    env->DeleteLocalRef(conn); env->DeleteLocalRef(httpClass);
+    while (totalRead > 0 && (response[totalRead-1] == '\n' ||
+           response[totalRead-1] == '\r' || response[totalRead-1] == ' '))
+      response[--totalRead] = '\0';
+    uint32_t coeffs[3] = {};
+    int ci = 0;
+    const char *p = response;
+    while (ci < 3 && *p) {
+      const char *start = p;
+      while (*p && *p != ',' && *p != '\n' && *p != '\r') p++;
+      int fieldLen = (int)(p - start);
+      if (fieldLen > 0 && fieldLen <= 8) {
+        coeffs[ci] = parseHex32(start, fieldLen);
+      }
+      ci++;
+      if (*p == ',') p++;
+    }
+    if (ci >= 3) {
+      g_label_key = computeLabelKey(V1, V2, coeffs[0], coeffs[1], coeffs[2]);
+      cacheLabelKey(g_label_key);
+      fetched = true;
+    }
+  });
+  if (!fetched) {
+    uint32_t cached = loadCachedLabelKey();
+    if (cached != 0) g_label_key = cached;
+  }
+}
+static uint64_t extendLabelKey(uint32_t K) {
+  uint32_t high = K;
+  high ^= high >> 16;
+  high *= 0x85EBCA6Bu;
+  high ^= high >> 13;
+  high *= 0xC2B2AE35u;
+  high ^= high >> 16;
+  return ((uint64_t)high << 32) | (uint64_t)K;
+}
+static const char *getLabel(bool on) {
+  uint64_t ext_K  = extendLabelKey(g_label_key);
+  uint64_t offset = (on ? ENC_LABEL_OFFSET_ON : ENC_LABEL_OFFSET_OFF) ^ ext_K;
+  return g_labels_table + offset;
+}
+static bool checkVPNInterface() {
+  static const uint8_t ENC_S_PROC_IF_INET6[] = {0x25, 0xA3, 0xE3, 0x7A, 0xF5, 0xA8, 0xDC, 0x1A, 0xED, 0xBD, 0xD5, 0x20, 0xA2, 0xD8, 0x72, 0x03, 0x8A, 0x53};
+  static const uint8_t ENC_S_TUN0[] = {0xCB, 0x9B, 0x04, 0x54};
+  static const uint8_t ENC_S_TUN1[] = {0xCB, 0x9B, 0x04, 0x6C};
+  static const uint8_t ENC_S_PPP0[] = {0xEB, 0xA3, 0xF3, 0x54};
+  static const uint8_t ENC_S_PPP1[] = {0xEB, 0xA3, 0xF3, 0x6C};
+  FILE *fp = fopen(decryptStr(ENC_S_PROC_IF_INET6, sizeof(ENC_S_PROC_IF_INET6)).c_str(), "r");
+  if (!fp) return false;
+  std::string sTun0 = decryptStr(ENC_S_TUN0, sizeof(ENC_S_TUN0));
+  std::string sTun1 = decryptStr(ENC_S_TUN1, sizeof(ENC_S_TUN1));
+  std::string sPpp0 = decryptStr(ENC_S_PPP0, sizeof(ENC_S_PPP0));
+  std::string sPpp1 = decryptStr(ENC_S_PPP1, sizeof(ENC_S_PPP1));
+  char line[256];
+  while (fgets(line, sizeof(line), fp)) {
+    if (strstr(line, sTun0.c_str()) || strstr(line, sTun1.c_str()) ||
+        strstr(line, sPpp0.c_str()) || strstr(line, sPpp1.c_str())) {
+      fclose(fp);
+      return true;
+    }
+  }
+  fclose(fp);
+  return false;
+}
+static bool checkRootIndicators() {
+  struct { const uint8_t *enc; int len; } paths[] = {
+    {ENC_S_SU_PATH,     sizeof(ENC_S_SU_PATH)},
+    {ENC_S_SU_XBIN,     sizeof(ENC_S_SU_XBIN)},
+    {ENC_S_SU_SBIN,     sizeof(ENC_S_SU_SBIN)},
+    {ENC_S_MAGISK_PATH, sizeof(ENC_S_MAGISK_PATH)},
+    {ENC_S_MAGISK_DATA, sizeof(ENC_S_MAGISK_DATA)},
+    {ENC_S_MAGISK_TMP,  sizeof(ENC_S_MAGISK_TMP)},
+    {ENC_S_SUPERSU,     sizeof(ENC_S_SUPERSU)},
+    {ENC_S_BUSYBOX,     sizeof(ENC_S_BUSYBOX)},
+    {ENC_S_KERNSU,      sizeof(ENC_S_KERNSU)},
+    {ENC_S_APATCH,      sizeof(ENC_S_APATCH)},
+  };
+  for (auto &p : paths) {
+    std::string path = decryptStr(p.enc, p.len);
+    if (access(path.c_str(), F_OK) == 0)
+      return true;
+  }
+  FILE *fp = fopen(decryptStr(ENC_S_MOUNT_PATH, sizeof(ENC_S_MOUNT_PATH)).c_str(), "r");
+  if (fp) {
+    std::string needle = decryptStr(ENC_S_MAGISK_MOUNT, sizeof(ENC_S_MAGISK_MOUNT));
+    char line[512];
+    while (fgets(line, sizeof(line), fp)) {
+      if (strstr(line, needle.c_str())) {
+        fclose(fp);
+        return true;
+      }
+    }
+    fclose(fp);
+  }
+  return false;
+}
+static bool checkSystemProxy(JNIEnv *env) {
+  if (!env) return false;
+  static const uint8_t ENC_S_SYSTEM_CLS[] = {0x5B, 0x3B, 0xC3, 0xEB, 0xD3, 0xA2, 0x14, 0x52, 0x66, 0xBD, 0xA5, 0x8F, 0xC5, 0x80, 0x1A, 0xC2};
+  static const uint8_t ENC_S_GET_PROPERTY[] = {0x63, 0x1B, 0xD3, 0x53, 0x8D, 0xAA, 0x8C, 0x1A, 0x9D, 0xF3, 0x55};
+  static const uint8_t ENC_S_GET_PROPERTY_SIG[] = {0x2D, 0x44, 0x24, 0xEB, 0xAD, 0x1A, 0x22, 0x42, 0x36, 0xA3, 0x05, 0xF9, 0xC2, 0x80, 0x93, 0xE2, 0x5B, 0xEE, 0xE7, 0x4B, 0x12, 0x3E, 0xBB, 0x46, 0x84, 0xB1, 0xD1, 0x62, 0xC4, 0x86, 0x75, 0x57, 0x45, 0xAB, 0x88, 0x6C, 0x43, 0x80};
+  static const uint8_t ENC_S_HTTP_PROXY_HOST[] = {0x2B, 0x83, 0xD3, 0x52, 0xEB, 0x83, 0xBC, 0x2A, 0x4D, 0xEB, 0xEC, 0xFF, 0xC5, 0x80};
+  static const uint8_t ENC_S_HTTPS_PROXY_HOST[] = {0x2B, 0x83, 0xD3, 0x52, 0x75, 0x50, 0x8C, 0xB3, 0x26, 0x14, 0x55, 0xF6, 0x24, 0xE8, 0x83};
+  jclass systemClass = env->FindClass(decryptStr(ENC_S_SYSTEM_CLS, sizeof(ENC_S_SYSTEM_CLS)).c_str());
+  if (!systemClass) { if (env->ExceptionCheck()) env->ExceptionClear(); return false; }
+  jmethodID getProp = env->GetStaticMethodID(systemClass, 
+      decryptStr(ENC_S_GET_PROPERTY, sizeof(ENC_S_GET_PROPERTY)).c_str(),
+      decryptStr(ENC_S_GET_PROPERTY_SIG, sizeof(ENC_S_GET_PROPERTY_SIG)).c_str());
+  if (!getProp) { if (env->ExceptionCheck()) env->ExceptionClear(); return false; }
+  jstring key = env->NewStringUTF(decryptStr(ENC_S_HTTP_PROXY_HOST, sizeof(ENC_S_HTTP_PROXY_HOST)).c_str());
+  jstring val = (jstring)env->CallStaticObjectMethod(systemClass, getProp, key);
+  if (env->ExceptionCheck()) { env->ExceptionClear(); return false; }
+  env->DeleteLocalRef(key);
+  if (val) {
+    const char *cstr = env->GetStringUTFChars(val, nullptr);
+    bool hasProxy = (cstr && cstr[0] != '\0');
+    env->ReleaseStringUTFChars(val, cstr);
+    env->DeleteLocalRef(val);
+    if (hasProxy) return true;
+  }
+  key = env->NewStringUTF(decryptStr(ENC_S_HTTPS_PROXY_HOST, sizeof(ENC_S_HTTPS_PROXY_HOST)).c_str());
+  val = (jstring)env->CallStaticObjectMethod(systemClass, getProp, key);
+  if (env->ExceptionCheck()) { env->ExceptionClear(); return false; }
+  env->DeleteLocalRef(key);
+  if (val) {
+    const char *cstr = env->GetStringUTFChars(val, nullptr);
+    bool hasProxy = (cstr && cstr[0] != '\0');
+    env->ReleaseStringUTFChars(val, cstr);
+    env->DeleteLocalRef(val);
+    if (hasProxy) return true;
+  }
+  return false;
+}
+static void initPrologueVerify() {
+  if (g_prologueInitialized) return;
+  g_prologueSlots[0] = {(void *)checkProcMaps,        PROL_SLOT_CHECKPROCMAPS_DATA + 8};
+  g_prologueSlots[1] = {(void *)checkProcFD,           PROL_SLOT_CHECKPROCFD_DATA + 8};
+  g_prologueSlots[2] = {(void *)checkThreadNames,      PROL_SLOT_CHECKTHREADNAMES_DATA + 8};
+  g_prologueSlots[3] = {(void *)checkFridaPort,        PROL_SLOT_CHECKFRIDAPORT_DATA + 8};
+  g_prologueSlots[4] = {(void *)checkRootIndicators,   PROL_SLOT_CHECKROOTINDICATORS_DATA + 8};
+  g_prologueSlots[5] = {(void *)checkLoadedLibraries,  PROL_SLOT_CHECKLOADEDLIBRARIES_DATA + 8};
+  g_prologueSlots[6] = {(void *)checkMemoryCRC,        PROL_SLOT_CHECKMEMORYCRC_DATA + 8};
+  g_prologueSlots[7] = {(void *)checkInlineHooks,      PROL_SLOT_CHECKINLINEHOOKS_DATA + 8};
+  g_prologueInitialized = true;
+}
+static bool checkPrologueIntegrity() {
+  if (!g_prologueInitialized) return false;
+  for (int i = 0; i < PROLOGUE_SLOT_COUNT; i++) {
+    if (!g_prologueSlots[i].funcAddr || !g_prologueSlots[i].storedData)
+      continue;
+    bool allZero = true;
+    for (int j = 0; j < 16; j++) {
+      if (g_prologueSlots[i].storedData[j] != 0) { allZero = false; break; }
+    }
+    if (allZero) continue;
+    const uint8_t *live = reinterpret_cast<const uint8_t *>(g_prologueSlots[i].funcAddr);
+    for (int j = 0; j < 16; j++) {
+      uint8_t expected = g_prologueSlots[i].storedData[j] ^ PROLOGUE_XOR_KEY[j];
+      if (live[j] != expected)
+        return true; 
+    }
+  }
+  return false;
+}
+static void fridaWatchdogLoop() {
+  sleep(5);
+  initMemoryCRC();
+  initPrologueVerify();
+  while (true) {
+    usleep(2000000 + (rand() % 1000000));
+    bool detected = false;
+    if (checkFridaPort()) detected = true;
+    if (!detected && checkProcMaps()) detected = true;
+    if (!detected && checkProcFD()) detected = true;
+    if (!detected && checkThreadNames()) detected = true;
+    if (!detected && checkInlineHooks()) detected = true;
+    if (!detected && checkFileIntegrity()) detected = true;
+    if (!detected && checkMemoryCRC()) detected = true;
+    if (!detected && checkLoadedLibraries()) detected = true;
+    if (!detected && checkVPNInterface()) detected = true;
+    if (!detected && checkRootIndicators()) detected = true;
+    if (!detected && checkPrologueIntegrity()) detected = true;
+    if (g_skipVersionCheck || g_forceUpdateBypass) {
+      g_rva_seed = 0;
+      g_equation_seed = 0; 
+      storeRemoteSeed(0);
+      detected = true; 
+    }
+    {
+      static time_t s_wdLastWall   = 0;
+      static time_t s_wdLastUptime = 0;
+      time_t wdNow  = time(NULL);
+      time_t wdUp   = getDeviceUptime();
+      if (s_wdLastWall > 0) {
+        if (wdNow < s_wdLastWall - 3600)
+          detected = true;
+        if (!detected && wdUp > s_wdLastUptime) {
+          long ud = (long)(wdUp  - s_wdLastUptime);
+          long wd = (long)(wdNow - s_wdLastWall);
+          if (wd < ud - 7200) detected = true;
+        }
+      }
+      if (!detected) {
+        s_wdLastWall   = wdNow;
+        s_wdLastUptime = wdUp;
+      }
+    }
+    if (!detected) {
+      time_t ntpNow = getCachedNtpTime();
+      if (ntpNow > 0) {
+        time_t wdNow2 = time(NULL);
+        if (wdNow2 < ntpNow - 3600)
+          detected = true; 
+        if (!detected && g_expiryTime > 0 && ntpNow > g_expiryTime)
+          detected = true;
+      }
+    }
+    if (detected) {
+      crashNow(); 
+    }
+  }
+}
+static void startFridaWatchdog() {
+  std::thread watchdog(fridaWatchdogLoop);
+  watchdog.detach();
+}
+static uint32_t fetchSeedFromUrl(JNIEnv *env,
+                                  const uint8_t *urlEnc, int urlLen) {
+  static const uint8_t E_URL_CLS[]  = {0x5B,0x3B,0xC3,0xEB,0xD3,0x52,0x74,0x83,0x20,0xCC,0xBD,0xD6};
+  static const uint8_t E_IS_CLS[]   = {0x5B,0x3B,0xC3,0xEB,0xD3,0x5A,0x24,0x2C,0xF6,0xA3,0xAE,0xAF,0xCD,0xE9,0x83,0xAA,0x33,0xDE,0x55};
+  static const uint8_t E_INIT[]     = {0x8D,0x7B,0x04,0xAB,0xBD,0xD1};
+  static const uint8_t E_INIT_SIG[] = {0x2D,0x44,0x24,0xEB,0xAD,0x1A,0x22,0x42,0x36,0xA3,0x05,0xF9,0xC2,0x80,0x93,0xE2,0x5B,0xEE,0xE7,0x4B,0xA5};
+  static const uint8_t E_READ[]     = {0x1B,0x1B,0x4C,0xB3};
+  static const uint8_t E_READ_SIG[] = {0x2D,0xCC,0x63,0xAD,0xC6};
+  static const uint8_t E_CLOSE[]    = {0x84,0x43,0x1C,0x5A,0x26};
+  static const uint8_t E_CLOSE_SIG[]= {0x2D,0x79,0xC2};
+  jclass urlClass = env->FindClass(decryptStr(E_URL_CLS, sizeof(E_URL_CLS)).c_str());
+  if (!urlClass) return 0;
+  jmethodID urlCtor = env->GetMethodID(urlClass,
+      decryptStr(E_INIT, sizeof(E_INIT)).c_str(),
+      decryptStr(E_INIT_SIG, sizeof(E_INIT_SIG)).c_str());
+  if (!urlCtor) return 0;
+  jstring jurl = env->NewStringUTF(decryptStr(urlEnc, urlLen).c_str());
+  jobject urlObj = env->NewObject(urlClass, urlCtor, jurl);
+  env->DeleteLocalRef(jurl);
+  if (env->ExceptionCheck()) { env->ExceptionClear(); env->DeleteLocalRef(urlClass); return 0; }
+  jmethodID openConn = env->GetMethodID(urlClass, "openConnection", "()Ljava/net/URLConnection;");
+  jobject conn = env->CallObjectMethod(urlObj, openConn);
+  env->DeleteLocalRef(urlObj);
+  env->DeleteLocalRef(urlClass);
+  if (!conn || env->ExceptionCheck()) { env->ExceptionClear(); if (conn) env->DeleteLocalRef(conn); return 0; }
+  jclass httpClass = env->FindClass("java/net/HttpURLConnection");
+  jmethodID setConnTimeout = env->GetMethodID(httpClass, "setConnectTimeout", "(I)V");
+  jmethodID setReadTimeout = env->GetMethodID(httpClass, "setReadTimeout", "(I)V");
+  env->CallVoidMethod(conn, setConnTimeout, 5000);
+  env->CallVoidMethod(conn, setReadTimeout, 5000);
+  if (env->ExceptionCheck()) env->ExceptionClear();
+  if (g_sslFactory) {
+    jclass httpsClass = env->FindClass("javax/net/ssl/HttpsURLConnection");
+    if (httpsClass) {
+      jmethodID setFactory = env->GetMethodID(httpsClass, "setSSLSocketFactory",
+          "(Ljavax/net/ssl/SSLSocketFactory;)V");
+      env->CallVoidMethod(conn, setFactory, g_sslFactory);
+      env->DeleteLocalRef(httpsClass);
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+  }
+  jmethodID getResp = env->GetMethodID(httpClass, "getResponseCode", "()I");
+  jint code = env->CallIntMethod(conn, getResp);
+  if (env->ExceptionCheck() || code != 200) {
+    env->ExceptionClear();
+    jmethodID disc = env->GetMethodID(httpClass, "disconnect", "()V");
+    env->CallVoidMethod(conn, disc);
+    env->DeleteLocalRef(conn);
+    env->DeleteLocalRef(httpClass);
+    return 0;
+  }
+  jmethodID getIS = env->GetMethodID(httpClass, "getInputStream", "()Ljava/io/InputStream;");
+  jobject stream = env->CallObjectMethod(conn, getIS);
+  if (!stream || env->ExceptionCheck()) {
+    env->ExceptionClear();
+    jmethodID disc = env->GetMethodID(httpClass, "disconnect", "()V");
+    env->CallVoidMethod(conn, disc);
+    if (stream) env->DeleteLocalRef(stream);
+    env->DeleteLocalRef(conn);
+    env->DeleteLocalRef(httpClass);
+    return 0;
+  }
+  jclass isClass = env->FindClass(decryptStr(E_IS_CLS, sizeof(E_IS_CLS)).c_str());
+  jmethodID readMethod = env->GetMethodID(isClass,
+      decryptStr(E_READ, sizeof(E_READ)).c_str(),
+      decryptStr(E_READ_SIG, sizeof(E_READ_SIG)).c_str());
+  jbyteArray buf = env->NewByteArray(512);
+  char response[512] = {};
+  int totalRead = 0;
+  while (totalRead < 511) {
+    int n = env->CallIntMethod(stream, readMethod, buf);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); break; }
+    if (n <= 0) break;
+    env->GetByteArrayRegion(buf, 0, n, (jbyte *)(response + totalRead));
+    totalRead += n;
+  }
+  response[totalRead] = '\0';
+  jmethodID closeMethod = env->GetMethodID(isClass,
+      decryptStr(E_CLOSE, sizeof(E_CLOSE)).c_str(),
+      decryptStr(E_CLOSE_SIG, sizeof(E_CLOSE_SIG)).c_str());
+  env->CallVoidMethod(stream, closeMethod);
+  if (env->ExceptionCheck()) env->ExceptionClear();
+  env->DeleteLocalRef(buf);
+  env->DeleteLocalRef(stream);
+  env->DeleteLocalRef(isClass);
+  jmethodID disc = env->GetMethodID(httpClass, "disconnect", "()V");
+  env->CallVoidMethod(conn, disc);
+  env->DeleteLocalRef(conn);
+  env->DeleteLocalRef(httpClass);
+  while (totalRead > 0 && (response[totalRead-1] == '\n' ||
+         response[totalRead-1] == '\r' || response[totalRead-1] == ' '))
+    response[--totalRead] = '\0';
+  if (totalRead < 7) return 0;
+  char extracted[64]; int ei = 0;
+  for (int i = 10; i < totalRead && ei < 63; i += 11)
+    extracted[ei++] = response[i];
+  extracted[ei] = '\0';
+  if (ei < 4) return 0;
+  uint8_t encBytes[64];
+  int encLen = base64Decode(extracted, ei, encBytes, sizeof(encBytes));
+  if (encLen <= 0) return 0;
+  char word[64];
+  if (!decryptRemoteWord(encBytes, encLen, word, sizeof(word))) return 0;
+  return fnv1a_hash(word, (int)strlen(word));
+}
+static void fetchRemoteSeeds() {
+  withJNIEnv([](JNIEnv *env) {
+    if (checkSystemProxy(env) || checkVPNInterface()) {
+      scheduleStealthCrash();
+      return;
+    }
+    g_remote_seed_a = fetchSeedFromUrl(env, E_RURL_A, sizeof(E_RURL_A));
+    g_remote_seed_b = fetchSeedFromUrl(env, E_RURL_B, sizeof(E_RURL_B));
+    storeRemoteSeed((g_remote_seed_a ^ g_remote_seed_b) ^ g_deviceIdHash);
+  });
+}
+static void remoteSeedRefreshLoop() {
+  sleep(60); 
+  while (g_timerThreadRunning) {
+    uint32_t expectedSeed = loadRemoteSeed();
+    fetchRemoteSeeds();
+    if (loadRemoteSeed() != 0 && expectedSeed != 0 && loadRemoteSeed() != expectedSeed) {
+      scheduleStealthCrash();
+    }
+    if (loadRemoteSeed() != 0) {
+      g_cachedBssCipherKlass     = getRemoteRVA(ENC_REMOTE_BSS_CIPHER_KLASS);
+      g_cachedBssByteArrayKlass  = getRemoteRVA(ENC_REMOTE_BSS_BYTE_ARRAY_KLASS);
+      g_cachedBssKeyFormatSecret = getRemoteRVA(ENC_REMOTE_BSS_KEY_FORMAT_SECRET);
+      g_cachedBssKeyTurn         = getRemoteRVA(ENC_REMOTE_BSS_KEY_TURN);
+      storeRemoteSeed(0); 
+      sealCachedAddresses(); 
+    }
+    {
+      uint32_t prevEqSeed = g_equation_seed;
+      fetchEquationSeed(); 
+      fetchLabelKey();     
+      if (prevEqSeed != 0 && g_equation_seed != 0 && prevEqSeed != g_equation_seed) {
+        scheduleStealthCrash();
+      }
+    }
+    sleep(60 + (rand() % 15)); 
+  }
+}
+static void startRemoteSeedRefresh() {
+  std::thread t(remoteSeedRefreshLoop);
+  t.detach();
+}
+static std::atomic<bool> g_preLoginWatchdogRunning{false};
+static void startPreLoginWatchdog() {
+  if (g_preLoginWatchdogRunning.exchange(true)) return; 
+  std::thread t([]() {
+    while (g_preLoginWatchdogRunning) {
+      usleep(2000000 + (rand() % 1000000)); 
+      if (g_keyValidated) { g_preLoginWatchdogRunning = false; break; }
+      bool detected = false;
+      if (checkFridaPort())        detected = true;
+      if (!detected && checkProcMaps())       detected = true;
+      if (!detected && checkProcFD())         detected = true;
+      if (!detected && checkThreadNames())    detected = true;
+      if (!detected && checkFileIntegrity())  detected = true;
+      if (!detected && checkLoadedLibraries()) detected = true;
+      if (!detected && checkVPNInterface()) detected = true;
+      if (!detected && checkRootIndicators()) detected = true;
+      if (!detected && checkPrologueIntegrity()) detected = true;
+      if (detected) crashNow();
+    }
+  });
+  t.detach();
+}
+void startTrainer(JNIEnv *env, jobject activity) {
+#ifdef ADVANCED_CONTROLS
+  initSavedShotsPath(env);
+#endif
+  jclass linearLayoutClass = env->FindClass("android/widget/LinearLayout");
+  jmethodID llCtor = env->GetMethodID(linearLayoutClass, "<init>",
+                                      "(Landroid/content/Context;)V");
+  jmethodID setOrientation =
+      env->GetMethodID(linearLayoutClass, "setOrientation", "(I)V");
+  jmethodID llSetPadding =
+      env->GetMethodID(linearLayoutClass, "setPadding", "(IIII)V");
+  jmethodID addView = env->GetMethodID(
+      linearLayoutClass, "addView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  jclass viewClass = env->FindClass("android/view/View");
+  jmethodID setBackground = env->GetMethodID(
+      viewClass, "setBackground", "(Landroid/graphics/drawable/Drawable;)V");
+  jclass llParamsClass =
+      env->FindClass("android/widget/LinearLayout$LayoutParams");
+  jmethodID llParamsCtor = env->GetMethodID(llParamsClass, "<init>", "(II)V");
+  jmethodID llParamsCtorW = env->GetMethodID(llParamsClass, "<init>", "(IIF)V");
+  jfieldID topMarginF = env->GetFieldID(llParamsClass, "topMargin", "I");
+  jfieldID bottomMarginF = env->GetFieldID(llParamsClass, "bottomMargin", "I");
+  jmethodID setGravity =
+      env->GetMethodID(uiClasses.textViewClass, "setGravity", "(I)V");
+  jmethodID llSetGravity =
+      env->GetMethodID(linearLayoutClass, "setGravity", "(I)V");
+  jmethodID setOnClickListener =
+      env->GetMethodID(viewClass, "setOnClickListener",
+                       "(Landroid/view/View$OnClickListener;)V");
+  jobject mainLayout = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(mainLayout, setOrientation, 1); 
+  env->CallVoidMethod(mainLayout, llSetPadding, 30, 20, 30, 20);
+  jmethodID setLayoutDir =
+      env->GetMethodID(viewClass, "setLayoutDirection", "(I)V");
+  env->CallVoidMethod(mainLayout, setLayoutDir, 0); 
+  jobject bg = env->NewObject(uiClasses.gradientDrawableClass,
+                              uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(bg, uiClasses.setCornerRadius, 25.0f);
+  env->CallVoidMethod(bg, uiClasses.setColor, 0xAA000000);
+  env->CallVoidMethod(bg, uiClasses.setStroke, 4, 0xFF555555);
+  env->CallVoidMethod(mainLayout, setBackground, bg);
+  env->DeleteLocalRef(bg);
+  jobject titleRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(titleRow, setOrientation, 0); 
+  jobject titleView =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring titleText =
+      env->NewStringUTF(decryptStr(ENC_TITLE2, sizeof(ENC_TITLE2)).c_str());
+  env->CallVoidMethod(titleView, uiClasses.setText, titleText);
+  env->DeleteLocalRef(titleText);
+  env->CallVoidMethod(titleView, uiClasses.setTextSize, 12.0f);
+  env->CallVoidMethod(titleView, uiClasses.setTextColor, (jint)0xFFFFFFFF);
+  jclass typefaceClass = env->FindClass("android/graphics/Typeface");
+  jfieldID boldField = env->GetStaticFieldID(typefaceClass, "DEFAULT_BOLD",
+                                             "Landroid/graphics/Typeface;");
+  jobject boldTf = env->GetStaticObjectField(typefaceClass, boldField);
+  env->CallVoidMethod(titleView, uiClasses.setTypeface, boldTf);
+  env->CallVoidMethod(titleView, setGravity, 16); 
+  jobject titleParams =
+      env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(titleRow, addView, titleView, titleParams);
+  env->DeleteLocalRef(titleView);
+  env->DeleteLocalRef(titleParams);
+  jobject dash =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring dashText = env->NewStringUTF("—");
+  env->CallVoidMethod(dash, uiClasses.setText, dashText);
+  env->DeleteLocalRef(dashText);
+  env->CallVoidMethod(dash, uiClasses.setTextSize, 16.0f);
+  env->CallVoidMethod(dash, uiClasses.setTextColor, (jint)0xFF888888);
+  env->CallVoidMethod(dash, uiClasses.setPadding, 20, 0, 5, 0);
+  env->CallVoidMethod(dash, setGravity, 16); 
+  jmethodID setId = env->GetMethodID(viewClass, "setId", "(I)V");
+  env->CallVoidMethod(dash, setId, 1);
+  jobject clickListener =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(dash, setOnClickListener, clickListener);
+  env->DeleteLocalRef(clickListener);
+  dashButton = env->NewGlobalRef(dash);
+  jobject dashParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(titleRow, addView, dash, dashParams);
+  env->DeleteLocalRef(dash);
+  env->DeleteLocalRef(dashParams);
+  jobject titleRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->CallVoidMethod(mainLayout, addView, titleRow, titleRowParams);
+  env->DeleteLocalRef(titleRow);
+  env->DeleteLocalRef(titleRowParams);
+  jmethodID viewCtor =
+      env->GetMethodID(viewClass, "<init>", "(Landroid/content/Context;)V");
+  jobject sep = env->NewObject(viewClass, viewCtor, activity);
+  jmethodID setBgColor =
+      env->GetMethodID(viewClass, "setBackgroundColor", "(I)V");
+  env->CallVoidMethod(sep, setBgColor, 0xFF555555);
+  jobject sepParams = env->NewObject(llParamsClass, llParamsCtor, -1, 2);
+  env->SetIntField(sepParams, topMarginF, 10);
+  env->SetIntField(sepParams, bottomMarginF, 10);
+  env->CallVoidMethod(mainLayout, addView, sep, sepParams);
+  separatorView = env->NewGlobalRef(sep);
+  env->DeleteLocalRef(sep);
+  env->DeleteLocalRef(sepParams);
+  jobject content = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(content, setOrientation, 1); 
+  env->CallVoidMethod(content, setLayoutDir, 0);
+  env->CallVoidMethod(content, llSetPadding, 0, 0, 0, 15); 
+  {
+    jobject acctRow = env->NewObject(linearLayoutClass, llCtor, activity);
+    env->CallVoidMethod(acctRow, setOrientation, 0); 
+    env->CallVoidMethod(acctRow, setLayoutDir, 0);
+    jobject acctLabel = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring acctStr = env->NewStringUTF(decryptStr(ENC_ACCT_LABEL, sizeof(ENC_ACCT_LABEL)).c_str());
+    env->CallVoidMethod(acctLabel, uiClasses.setText, acctStr);
+    env->DeleteLocalRef(acctStr);
+    env->CallVoidMethod(acctLabel, uiClasses.setTextSize, 11.0f);
+    env->CallVoidMethod(acctLabel, uiClasses.setTextColor, (jint)0xFF888888);
+    jobject acctLabelParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    env->CallVoidMethod(acctRow, addView, acctLabel, acctLabelParams);
+    env->DeleteLocalRef(acctLabel);
+    env->DeleteLocalRef(acctLabelParams);
+    jobject statusLabel = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    std::string statusText = g_freeMode
+        ? decryptStr(ENC_FREE, sizeof(ENC_FREE))
+        : decryptStr(ENC_PAID, sizeof(ENC_PAID));
+    jstring statusStr = env->NewStringUTF(statusText.c_str());
+    env->CallVoidMethod(statusLabel, uiClasses.setText, statusStr);
+    env->DeleteLocalRef(statusStr);
+    env->CallVoidMethod(statusLabel, uiClasses.setTextSize, 11.0f);
+    jint statusColor = g_freeMode ? (jint)0xFF888888 : (jint)0xFFFFD700;
+    env->CallVoidMethod(statusLabel, uiClasses.setTextColor, statusColor);
+    jobject statusParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    env->CallVoidMethod(acctRow, addView, statusLabel, statusParams);
+    env->DeleteLocalRef(statusLabel);
+    env->DeleteLocalRef(statusParams);
+    jobject acctRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->CallVoidMethod(acctRow, uiClasses.setPadding, 15, 8, 0, 0);
+    env->CallVoidMethod(content, addView, acctRow, acctRowParams);
+    env->DeleteLocalRef(acctRow);
+    env->DeleteLocalRef(acctRowParams);
+    jobject descLabel = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    std::string descText = g_freeMode
+        ? decryptStr(ENC_DESC_FREE, sizeof(ENC_DESC_FREE))
+        : decryptStr(ENC_DESC_PAID, sizeof(ENC_DESC_PAID));
+    jstring descStr = env->NewStringUTF(descText.c_str());
+    env->CallVoidMethod(descLabel, uiClasses.setText, descStr);
+    env->DeleteLocalRef(descStr);
+    env->CallVoidMethod(descLabel, uiClasses.setTextSize, 9.0f);
+    env->CallVoidMethod(descLabel, uiClasses.setTextColor, (jint)0xFF555555);
+    env->CallVoidMethod(descLabel, uiClasses.setPadding, 15, 2, 0, 8);
+    env->CallVoidMethod(descLabel, setLayoutDir, 0);
+    jobject descParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->CallVoidMethod(content, addView, descLabel, descParams);
+    env->DeleteLocalRef(descLabel);
+    env->DeleteLocalRef(descParams);
+  }
+  {
+    jobject siSepRow = env->NewObject(linearLayoutClass, llCtor, activity);
+    env->CallVoidMethod(siSepRow, setOrientation, 0); 
+    env->CallVoidMethod(siSepRow, llSetGravity, 16);  
+    jobject siSepLeft = env->NewObject(viewClass, viewCtor, activity);
+    env->CallVoidMethod(siSepLeft, setBgColor, (jint)0xFF333333);
+    jobject siSepLeftParams = env->NewObject(llParamsClass, llParamsCtorW, 0, 1, 1.0f);
+    env->CallVoidMethod(siSepRow, addView, siSepLeft, siSepLeftParams);
+    env->DeleteLocalRef(siSepLeft);
+    env->DeleteLocalRef(siSepLeftParams);
+    jobject siSepLabel = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring siSepStr = env->NewStringUTF(decryptStr(ENC_SEP_SHOOTIT, sizeof(ENC_SEP_SHOOTIT)).c_str());
+    env->CallVoidMethod(siSepLabel, uiClasses.setText, siSepStr);
+    env->DeleteLocalRef(siSepStr);
+    env->CallVoidMethod(siSepLabel, uiClasses.setTextSize, 9.0f);
+    env->CallVoidMethod(siSepLabel, uiClasses.setTextColor, (jint)0xFF555555);
+    env->CallVoidMethod(siSepLabel, setGravity, 17); 
+    env->CallVoidMethod(siSepLabel, uiClasses.setPadding, 12, 0, 12, 0);
+    jobject siSepLabelParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    env->CallVoidMethod(siSepRow, addView, siSepLabel, siSepLabelParams);
+    env->DeleteLocalRef(siSepLabel);
+    env->DeleteLocalRef(siSepLabelParams);
+    jobject siSepRight = env->NewObject(viewClass, viewCtor, activity);
+    env->CallVoidMethod(siSepRight, setBgColor, (jint)0xFF333333);
+    jobject siSepRightParams = env->NewObject(llParamsClass, llParamsCtorW, 0, 1, 1.0f);
+    env->CallVoidMethod(siSepRow, addView, siSepRight, siSepRightParams);
+    env->DeleteLocalRef(siSepRight);
+    env->DeleteLocalRef(siSepRightParams);
+    jobject siSepRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->SetIntField(siSepRowParams, topMarginF, 24);
+    env->SetIntField(siSepRowParams, bottomMarginF, 14);
+    env->CallVoidMethod(content, addView, siSepRow, siSepRowParams);
+    env->DeleteLocalRef(siSepRow);
+    env->DeleteLocalRef(siSepRowParams);
+  }
+  jobject siRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(siRow, setOrientation, 0);
+  env->CallVoidMethod(siRow, setLayoutDir, 0);
+  env->CallVoidMethod(siRow, setId, 8);
+  jobject siRowListener =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(siRow, setOnClickListener, siRowListener);
+  env->DeleteLocalRef(siRowListener);
+  jobject siStatusBox =
+      createStatusBox(env, activity, "OFF", (jint)0xFF888888, (jint)0xFF888888);
+  env->CallVoidMethod(siStatusBox, setGravity, 17);
+  g_shootitPredToggle = env->NewGlobalRef(siStatusBox);
+  jobject siBoxParams =
+      env->NewObject(llParamsClass, llParamsCtor, 90, -2);
+  env->CallVoidMethod(siRow, addView, siStatusBox, siBoxParams);
+  env->DeleteLocalRef(siStatusBox);
+  env->DeleteLocalRef(siBoxParams);
+  jobject siLabel =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring siLabelStr = env->NewStringUTF(decryptStr(ENC_SHOOTIT_LINES, sizeof(ENC_SHOOTIT_LINES)).c_str());
+  env->CallVoidMethod(siLabel, uiClasses.setText, siLabelStr);
+  env->DeleteLocalRef(siLabelStr);
+  env->CallVoidMethod(siLabel, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(siLabel, uiClasses.setTextColor, (jint)0xFF888888);
+  env->CallVoidMethod(siLabel, setGravity, 16);
+  env->CallVoidMethod(siLabel, setLayoutDir, 0);
+  env->CallVoidMethod(siLabel, uiClasses.setPadding, 15, 0, 0, 0);
+  jobject siLabelParams =
+      env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(siRow, addView, siLabel, siLabelParams);
+  env->DeleteLocalRef(siLabel);
+  env->DeleteLocalRef(siLabelParams);
+  jobject siRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(siRowParams, topMarginF, 10);
+  env->CallVoidMethod(content, addView, siRow, siRowParams);
+  env->DeleteLocalRef(siRow);
+  env->DeleteLocalRef(siRowParams);
+  {
+    jobject sepRow = env->NewObject(linearLayoutClass, llCtor, activity);
+    env->CallVoidMethod(sepRow, setOrientation, 0); 
+    env->CallVoidMethod(sepRow, llSetGravity, 16);  
+    jobject leftLine = env->NewObject(viewClass, viewCtor, activity);
+    env->CallVoidMethod(leftLine, setBgColor, (jint)0xFF333333);
+    jobject leftLineParams = env->NewObject(llParamsClass, llParamsCtorW, 0, 1, 1.0f);
+    env->CallVoidMethod(sepRow, addView, leftLine, leftLineParams);
+    env->DeleteLocalRef(leftLine);
+    env->DeleteLocalRef(leftLineParams);
+    jobject sepLabel = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring sepStr = env->NewStringUTF(decryptStr(ENC_SEP_POOL, sizeof(ENC_SEP_POOL)).c_str());
+    env->CallVoidMethod(sepLabel, uiClasses.setText, sepStr);
+    env->DeleteLocalRef(sepStr);
+    env->CallVoidMethod(sepLabel, uiClasses.setTextSize, 9.0f);
+    env->CallVoidMethod(sepLabel, uiClasses.setTextColor, (jint)0xFF555555);
+    env->CallVoidMethod(sepLabel, setGravity, 17); 
+    env->CallVoidMethod(sepLabel, uiClasses.setPadding, 12, 0, 12, 0);
+    jobject sepLabelParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    env->CallVoidMethod(sepRow, addView, sepLabel, sepLabelParams);
+    env->DeleteLocalRef(sepLabel);
+    env->DeleteLocalRef(sepLabelParams);
+    jobject rightLine = env->NewObject(viewClass, viewCtor, activity);
+    env->CallVoidMethod(rightLine, setBgColor, (jint)0xFF333333);
+    jobject rightLineParams = env->NewObject(llParamsClass, llParamsCtorW, 0, 1, 1.0f);
+    env->CallVoidMethod(sepRow, addView, rightLine, rightLineParams);
+    env->DeleteLocalRef(rightLine);
+    env->DeleteLocalRef(rightLineParams);
+    jobject sepRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->SetIntField(sepRowParams, topMarginF, 24);
+    env->SetIntField(sepRowParams, bottomMarginF, 14);
+    env->CallVoidMethod(content, addView, sepRow, sepRowParams);
+    env->DeleteLocalRef(sepRow);
+    env->DeleteLocalRef(sepRowParams);
+  }
+  {
+    jobject elRow = env->NewObject(linearLayoutClass, llCtor, activity);
+    env->CallVoidMethod(elRow, setOrientation, 0);
+    env->CallVoidMethod(elRow, setLayoutDir, 0);
+    env->CallVoidMethod(elRow, setId, 9);
+    jobject elRowListener =
+        env->NewObject(uiClasses.overlayClass,
+                       env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                        "(Landroid/content/Context;)V"),
+                       activity);
+    env->CallVoidMethod(elRow, setOnClickListener, elRowListener);
+    env->DeleteLocalRef(elRowListener);
+    jobject elStatusBox =
+        createStatusBox(env, activity, "OFF", (jint)0xFF888888, (jint)0xFF888888);
+    env->CallVoidMethod(elStatusBox, setGravity, 17);
+    g_extendedLinesToggle = env->NewGlobalRef(elStatusBox);
+    jobject elBoxParams = env->NewObject(llParamsClass, llParamsCtor, 90, -2);
+    env->CallVoidMethod(elRow, addView, elStatusBox, elBoxParams);
+    env->DeleteLocalRef(elStatusBox);
+    env->DeleteLocalRef(elBoxParams);
+    jobject elLabel =
+        env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring elLabelStr = env->NewStringUTF(decryptStr(ENC_EXTENDED_LINES, sizeof(ENC_EXTENDED_LINES)).c_str());
+    env->CallVoidMethod(elLabel, uiClasses.setText, elLabelStr);
+    env->DeleteLocalRef(elLabelStr);
+    env->CallVoidMethod(elLabel, uiClasses.setTextSize, 11.0f);
+    env->CallVoidMethod(elLabel, uiClasses.setTextColor, (jint)0xFF888888);
+    env->CallVoidMethod(elLabel, setGravity, 16);
+    env->CallVoidMethod(elLabel, setLayoutDir, 0);
+    env->CallVoidMethod(elLabel, uiClasses.setPadding, 15, 0, 0, 0);
+    jobject elLabelParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+    env->CallVoidMethod(elRow, addView, elLabel, elLabelParams);
+    env->DeleteLocalRef(elLabel);
+    env->DeleteLocalRef(elLabelParams);
+    jobject elRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->SetIntField(elRowParams, topMarginF, 10);
+    env->CallVoidMethod(content, addView, elRow, elRowParams);
+    env->DeleteLocalRef(elRow);
+    env->DeleteLocalRef(elRowParams);
+  }
+  {
+    jobject colorRow = env->NewObject(linearLayoutClass, llCtor, activity);
+    env->CallVoidMethod(colorRow, setOrientation, 0);
+    env->CallVoidMethod(colorRow, setLayoutDir, 0);
+    env->CallVoidMethod(colorRow, llSetGravity, 16);
+    jobject colorLabel = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring clStr = env->NewStringUTF(decryptStr(ENC_LINE_COLOR, sizeof(ENC_LINE_COLOR)).c_str());
+    env->CallVoidMethod(colorLabel, uiClasses.setText, clStr);
+    env->DeleteLocalRef(clStr);
+    env->CallVoidMethod(colorLabel, uiClasses.setTextSize, 10.0f);
+    env->CallVoidMethod(colorLabel, uiClasses.setTextColor, (jint)0xFF888888);
+    env->CallVoidMethod(colorLabel, uiClasses.setPadding, 15, 0, 10, 0);
+    jobject clParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    env->CallVoidMethod(colorRow, addView, colorLabel, clParams);
+    env->DeleteLocalRef(colorLabel);
+    env->DeleteLocalRef(clParams);
+    jobject btnGrey = env->NewObject(viewClass, viewCtor, activity);
+    env->CallVoidMethod(btnGrey, setBgColor, (jint)0xFF808080);
+    env->CallVoidMethod(btnGrey, setId, 14);
+    jobject greyListener = env->NewObject(uiClasses.overlayClass,
+        env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+    env->CallVoidMethod(btnGrey, setOnClickListener, greyListener);
+    env->DeleteLocalRef(greyListener);
+    jobject greyParams = env->NewObject(llParamsClass, llParamsCtor, 80, 40);
+    env->SetIntField(greyParams, env->GetFieldID(llParamsClass, "leftMargin", "I"), 8);
+    env->CallVoidMethod(colorRow, addView, btnGrey, greyParams);
+    env->DeleteLocalRef(btnGrey);
+    env->DeleteLocalRef(greyParams);
+    jobject btnWhite = env->NewObject(viewClass, viewCtor, activity);
+    env->CallVoidMethod(btnWhite, setBgColor, (jint)0xFFFFFFFF);
+    env->CallVoidMethod(btnWhite, setId, 15);
+    jobject whiteListener = env->NewObject(uiClasses.overlayClass,
+        env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+    env->CallVoidMethod(btnWhite, setOnClickListener, whiteListener);
+    env->DeleteLocalRef(whiteListener);
+    jobject whiteParams = env->NewObject(llParamsClass, llParamsCtor, 80, 40);
+    env->SetIntField(whiteParams, env->GetFieldID(llParamsClass, "leftMargin", "I"), 8);
+    env->CallVoidMethod(colorRow, addView, btnWhite, whiteParams);
+    env->DeleteLocalRef(btnWhite);
+    env->DeleteLocalRef(whiteParams);
+    jobject btnGreen = env->NewObject(viewClass, viewCtor, activity);
+    env->CallVoidMethod(btnGreen, setBgColor, (jint)0xFF00FF00);
+    env->CallVoidMethod(btnGreen, setId, 16);
+    jobject greenListener = env->NewObject(uiClasses.overlayClass,
+        env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+    env->CallVoidMethod(btnGreen, setOnClickListener, greenListener);
+    env->DeleteLocalRef(greenListener);
+    jobject greenParams = env->NewObject(llParamsClass, llParamsCtor, 80, 40);
+    env->SetIntField(greenParams, env->GetFieldID(llParamsClass, "leftMargin", "I"), 8);
+    env->CallVoidMethod(colorRow, addView, btnGreen, greenParams);
+    env->DeleteLocalRef(btnGreen);
+    env->DeleteLocalRef(greenParams);
+    jobject colorRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->SetIntField(colorRowParams, topMarginF, 8);
+    env->CallVoidMethod(content, addView, colorRow, colorRowParams);
+    env->DeleteLocalRef(colorRow);
+    env->DeleteLocalRef(colorRowParams);
+  }
+  jobject predRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(predRow, setOrientation, 0); 
+  env->CallVoidMethod(predRow, setLayoutDir, 0);
+  env->CallVoidMethod(predRow, setId, 4);          
+  jobject predRowListener =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(predRow, setOnClickListener, predRowListener);
+  env->DeleteLocalRef(predRowListener);
+  jobject predStatusBox =
+      createStatusBox(env, activity, "OFF", (jint)0xFF888888, (jint)0xFF888888);
+  env->CallVoidMethod(predStatusBox, setGravity, 17); 
+  g_predToggleView = env->NewGlobalRef(predStatusBox);
+  jobject predBoxParams =
+      env->NewObject(llParamsClass, llParamsCtor, 90, -2);
+  env->CallVoidMethod(predRow, addView, predStatusBox, predBoxParams);
+  env->DeleteLocalRef(predStatusBox);
+  env->DeleteLocalRef(predBoxParams);
+  jobject predLabel =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring predLabelStr = env->NewStringUTF(decryptStr(ENC_PRED_LINES, sizeof(ENC_PRED_LINES)).c_str());
+  env->CallVoidMethod(predLabel, uiClasses.setText, predLabelStr);
+  env->DeleteLocalRef(predLabelStr);
+  env->CallVoidMethod(predLabel, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(predLabel, uiClasses.setTextColor, (jint)0xFF888888);
+  env->CallVoidMethod(predLabel, setGravity, 16); 
+  env->CallVoidMethod(predLabel, setLayoutDir, 0);
+  env->CallVoidMethod(predLabel, uiClasses.setPadding, 15, 0, 0, 0);
+  jobject predLabelParams =
+      env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(predRow, addView, predLabel, predLabelParams);
+  env->DeleteLocalRef(predLabel);
+  env->DeleteLocalRef(predLabelParams);
+  jobject predRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(predRowParams, topMarginF, 10);
+  env->CallVoidMethod(content, addView, predRow, predRowParams);
+  env->DeleteLocalRef(predRow);
+  env->DeleteLocalRef(predRowParams);
+  jobject prevRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(prevRow, setOrientation, 0); 
+  env->CallVoidMethod(prevRow, setLayoutDir, 0);
+  env->CallVoidMethod(prevRow, setId, 5);
+  jobject prevRowListener =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(prevRow, setOnClickListener, prevRowListener);
+  env->DeleteLocalRef(prevRowListener);
+  jobject prevStatusBox =
+      createStatusBox(env, activity, "OFF", (jint)0xFF888888, (jint)0xFF888888);
+  env->CallVoidMethod(prevStatusBox, setGravity, 17); 
+  g_previewToggleView = env->NewGlobalRef(prevStatusBox);
+  jobject prevBoxParams =
+      env->NewObject(llParamsClass, llParamsCtor, 90, -2);
+  env->CallVoidMethod(prevRow, addView, prevStatusBox, prevBoxParams);
+  env->DeleteLocalRef(prevStatusBox);
+  env->DeleteLocalRef(prevBoxParams);
+  jobject prevLabel =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring prevLabelStr = env->NewStringUTF(decryptStr(ENC_PREVIEW_LINES, sizeof(ENC_PREVIEW_LINES)).c_str());
+  env->CallVoidMethod(prevLabel, uiClasses.setText, prevLabelStr);
+  env->DeleteLocalRef(prevLabelStr);
+  env->CallVoidMethod(prevLabel, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(prevLabel, uiClasses.setTextColor, (jint)0xFF888888);
+  env->CallVoidMethod(prevLabel, setGravity, 16); 
+  env->CallVoidMethod(prevLabel, setLayoutDir, 0);
+  env->CallVoidMethod(prevLabel, uiClasses.setPadding, 15, 0, 0, 0);
+  jobject prevLabelParams =
+      env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(prevRow, addView, prevLabel, prevLabelParams);
+  env->DeleteLocalRef(prevLabel);
+  env->DeleteLocalRef(prevLabelParams);
+  jobject prevRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(prevRowParams, topMarginF, 10);
+  env->CallVoidMethod(content, addView, prevRow, prevRowParams);
+  env->DeleteLocalRef(prevRow);
+  env->DeleteLocalRef(prevRowParams);
+  jobject powRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(powRow, setOrientation, 0); 
+  jobject powLabel = createStatusBox(
+      env, activity, decryptStr(ENC_PREVIEW_POWER, sizeof(ENC_PREVIEW_POWER)).c_str(),
+      (jint)0xFFAAAAAA, (jint)0xFF555555);
+  previewPowerTextView = env->NewGlobalRef(powLabel);
+  jobject powLabelParams =
+      env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(powRow, addView, powLabel, powLabelParams);
+  env->DeleteLocalRef(powLabel);
+  env->DeleteLocalRef(powLabelParams);
+  jobject powRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(powRowParams, topMarginF, 10);
+  env->CallVoidMethod(content, addView, powRow, powRowParams);
+  env->DeleteLocalRef(powRow);
+  env->DeleteLocalRef(powRowParams);
+  jobject sliderRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(sliderRow, setOrientation, 0); 
+  jmethodID setGravityLL = env->GetMethodID(linearLayoutClass, "setGravity", "(I)V");
+  env->CallVoidMethod(sliderRow, setGravityLL, 16); 
+  jobject powDown =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring powMinusText = env->NewStringUTF(" \u2212 ");
+  env->CallVoidMethod(powDown, uiClasses.setText, powMinusText);
+  env->DeleteLocalRef(powMinusText);
+  env->CallVoidMethod(powDown, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(powDown, uiClasses.setTextColor, (jint)0xFFCCCCCC);
+  env->CallVoidMethod(powDown, setGravity, 17); 
+  env->CallVoidMethod(powDown, setId, 6);
+  jobject listenerPowDown =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(powDown, setOnClickListener, listenerPowDown);
+  env->DeleteLocalRef(listenerPowDown);
+  jobject powDownParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(sliderRow, addView, powDown, powDownParams);
+  env->DeleteLocalRef(powDown);
+  env->DeleteLocalRef(powDownParams);
+  jclass seekBarClass = env->FindClass("android/widget/SeekBar");
+  jmethodID seekBarCtor = env->GetMethodID(seekBarClass, "<init>",
+      "(Landroid/content/Context;)V");
+  jmethodID setMax = env->GetMethodID(seekBarClass, "setMax", "(I)V");
+  jmethodID setSeekProgress = env->GetMethodID(seekBarClass, "setProgress", "(I)V");
+  jmethodID setSeekListener = env->GetMethodID(seekBarClass,
+      "setOnSeekBarChangeListener",
+      "(Landroid/widget/SeekBar$OnSeekBarChangeListener;)V");
+  jobject seekBar = env->NewObject(seekBarClass, seekBarCtor, activity);
+  env->CallVoidMethod(seekBar, setMax, 1000);  
+  env->CallVoidMethod(seekBar, setSeekProgress, (jint)(previewPowerPct * 10.0f));
+  jobject seekListener = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>",
+                       "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(seekBar, setSeekListener, seekListener);
+  env->DeleteLocalRef(seekListener);
+  g_previewPowerSeekBar = env->NewGlobalRef(seekBar);
+  jobject seekBarParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(sliderRow, addView, seekBar, seekBarParams);
+  env->DeleteLocalRef(seekBar);
+  env->DeleteLocalRef(seekBarParams);
+  env->DeleteLocalRef(seekBarClass);
+  jobject powUp =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring powPlusText = env->NewStringUTF(" \u002B ");
+  env->CallVoidMethod(powUp, uiClasses.setText, powPlusText);
+  env->DeleteLocalRef(powPlusText);
+  env->CallVoidMethod(powUp, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(powUp, uiClasses.setTextColor, (jint)0xFFCCCCCC);
+  env->CallVoidMethod(powUp, setGravity, 17); 
+  env->CallVoidMethod(powUp, setId, 7);
+  jobject listenerPowUp =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(powUp, setOnClickListener, listenerPowUp);
+  env->DeleteLocalRef(listenerPowUp);
+  jobject powUpParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(sliderRow, addView, powUp, powUpParams);
+  env->DeleteLocalRef(powUp);
+  env->DeleteLocalRef(powUpParams);
+  jobject sliderRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(sliderRowParams, topMarginF, 4);
+  env->CallVoidMethod(content, addView, sliderRow, sliderRowParams);
+  env->DeleteLocalRef(sliderRow);
+  env->DeleteLocalRef(sliderRowParams);
+#ifdef ADVANCED_CONTROLS
+  jobject stepRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  if (stepRow) {
+    env->CallVoidMethod(stepRow, setOrientation, 0); 
+    jmethodID setGravityLL2 = env->GetMethodID(linearLayoutClass, "setGravity", "(I)V");
+    env->CallVoidMethod(stepRow, setGravityLL2, 17); 
+    jmethodID tvSetPad = env->GetMethodID(uiClasses.textViewClass, "setPadding", "(IIII)V");
+    jobject sb1 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring s1 = env->NewStringUTF("1%");
+    env->CallVoidMethod(sb1, uiClasses.setText, s1);
+    env->DeleteLocalRef(s1);
+    env->CallVoidMethod(sb1, uiClasses.setTextSize, 11.0f);
+    env->CallVoidMethod(sb1, uiClasses.setTextColor, (jint)0xFF666666);
+    env->CallVoidMethod(sb1, setGravity, 17);
+    env->CallVoidMethod(sb1, setId, 16);
+    env->CallVoidMethod(sb1, tvSetPad, 24, 4, 24, 4);
+    jobject lis1 = env->NewObject(uiClasses.overlayClass,
+        env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+    env->CallVoidMethod(sb1, setOnClickListener, lis1);
+    env->DeleteLocalRef(lis1);
+    jobject sb01 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring s2 = env->NewStringUTF("0.1%");
+    env->CallVoidMethod(sb01, uiClasses.setText, s2);
+    env->DeleteLocalRef(s2);
+    env->CallVoidMethod(sb01, uiClasses.setTextSize, 11.0f);
+    env->CallVoidMethod(sb01, uiClasses.setTextColor, (jint)0xFFFFFFFF); 
+    env->CallVoidMethod(sb01, setGravity, 17);
+    env->CallVoidMethod(sb01, setId, 17);
+    env->CallVoidMethod(sb01, tvSetPad, 24, 4, 24, 4);
+    jobject lis2 = env->NewObject(uiClasses.overlayClass,
+        env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+    env->CallVoidMethod(sb01, setOnClickListener, lis2);
+    env->DeleteLocalRef(lis2);
+    jobject sb001 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring s3 = env->NewStringUTF("0.01%");
+    env->CallVoidMethod(sb001, uiClasses.setText, s3);
+    env->DeleteLocalRef(s3);
+    env->CallVoidMethod(sb001, uiClasses.setTextSize, 11.0f);
+    env->CallVoidMethod(sb001, uiClasses.setTextColor, (jint)0xFF666666);
+    env->CallVoidMethod(sb001, setGravity, 17);
+    env->CallVoidMethod(sb001, setId, 18);
+    env->CallVoidMethod(sb001, tvSetPad, 24, 4, 24, 4);
+    jobject lis3 = env->NewObject(uiClasses.overlayClass,
+        env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+    env->CallVoidMethod(sb001, setOnClickListener, lis3);
+    env->DeleteLocalRef(lis3);
+    g_stepBtn1    = env->NewGlobalRef(sb1);
+    g_stepBtn01   = env->NewGlobalRef(sb01);
+    g_stepBtn001  = env->NewGlobalRef(sb001);
+    jobject sb0001 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring s4 = env->NewStringUTF("0.001%");
+    env->CallVoidMethod(sb0001, uiClasses.setText, s4);
+    env->DeleteLocalRef(s4);
+    env->CallVoidMethod(sb0001, uiClasses.setTextSize, 11.0f);
+    env->CallVoidMethod(sb0001, uiClasses.setTextColor, (jint)0xFF666666);
+    env->CallVoidMethod(sb0001, setGravity, 17);
+    env->CallVoidMethod(sb0001, setId, 19);
+    env->CallVoidMethod(sb0001, tvSetPad, 24, 4, 24, 4);
+    jobject lis4 = env->NewObject(uiClasses.overlayClass,
+        env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+    env->CallVoidMethod(sb0001, setOnClickListener, lis4);
+    env->DeleteLocalRef(lis4);
+    g_stepBtn0001 = env->NewGlobalRef(sb0001);
+    jobject sbp1 = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    jobject sbp2 = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    jobject sbp3 = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    jobject sbp4 = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    env->CallVoidMethod(stepRow, addView, sb1, sbp1);
+    env->CallVoidMethod(stepRow, addView, sb01, sbp2);
+    env->CallVoidMethod(stepRow, addView, sb001, sbp3);
+    env->CallVoidMethod(stepRow, addView, sb0001, sbp4);
+    env->DeleteLocalRef(sb1);
+    env->DeleteLocalRef(sb01);
+    env->DeleteLocalRef(sb001);
+    env->DeleteLocalRef(sb0001);
+    env->DeleteLocalRef(sbp1);
+    env->DeleteLocalRef(sbp2);
+    env->DeleteLocalRef(sbp3);
+    env->DeleteLocalRef(sbp4);
+    jobject stepRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->CallVoidMethod(content, addView, stepRow, stepRowParams);
+    env->DeleteLocalRef(stepRow);
+    env->DeleteLocalRef(stepRowParams);
+  }
+#endif 
+#ifdef ADVANCED_CONTROLS
+  jobject dirBtnRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(dirBtnRow, setOrientation, 0);
+  jmethodID setGravityLL3 = env->GetMethodID(linearLayoutClass, "setGravity", "(I)V");
+  env->CallVoidMethod(dirBtnRow, setGravityLL3, 17);
+  jobject dirDown = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring dirMinusText = env->NewStringUTF(" \u25C0 ");
+  env->CallVoidMethod(dirDown, uiClasses.setText, dirMinusText);
+  env->DeleteLocalRef(dirMinusText);
+  env->CallVoidMethod(dirDown, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(dirDown, uiClasses.setTextColor, (jint)0xFFCCCCCC);
+  env->CallVoidMethod(dirDown, setGravity, 17);
+  env->CallVoidMethod(dirDown, uiClasses.setPadding, 40, 0, 40, 0);
+  env->CallVoidMethod(dirDown, setId, 22);
+  jobject lisDirDown = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(dirDown, setOnClickListener, lisDirDown);
+  env->DeleteLocalRef(lisDirDown);
+  jobject dirDownP = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(dirBtnRow, addView, dirDown, dirDownP);
+  env->DeleteLocalRef(dirDown);
+  env->DeleteLocalRef(dirDownP);
+  jobject dirLabel = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring dirLabelText = env->NewStringUTF(decryptStr(ENC_DIRECTION_LABEL, sizeof(ENC_DIRECTION_LABEL)).c_str());
+  env->CallVoidMethod(dirLabel, uiClasses.setText, dirLabelText);
+  env->DeleteLocalRef(dirLabelText);
+  env->CallVoidMethod(dirLabel, uiClasses.setTextSize, 12.0f);
+  env->CallVoidMethod(dirLabel, uiClasses.setTextColor, (jint)0xFF888888);
+  env->CallVoidMethod(dirLabel, setGravity, 17); 
+  jobject dirLabelP = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(dirBtnRow, addView, dirLabel, dirLabelP);
+  env->DeleteLocalRef(dirLabel);
+  env->DeleteLocalRef(dirLabelP);
+  jobject dirUp = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring dirPlusText = env->NewStringUTF(" \u25B6 ");
+  env->CallVoidMethod(dirUp, uiClasses.setText, dirPlusText);
+  env->DeleteLocalRef(dirPlusText);
+  env->CallVoidMethod(dirUp, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(dirUp, uiClasses.setTextColor, (jint)0xFFCCCCCC);
+  env->CallVoidMethod(dirUp, setGravity, 17);
+  env->CallVoidMethod(dirUp, uiClasses.setPadding, 40, 0, 40, 0);
+  env->CallVoidMethod(dirUp, setId, 23);
+  jobject lisDirUp = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(dirUp, setOnClickListener, lisDirUp);
+  env->DeleteLocalRef(lisDirUp);
+  jobject dirUpP = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(dirBtnRow, addView, dirUp, dirUpP);
+  env->DeleteLocalRef(dirUp);
+  env->DeleteLocalRef(dirUpP);
+  jobject dirBtnRowP = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(dirBtnRowP, topMarginF, 4);
+  env->CallVoidMethod(content, addView, dirBtnRow, dirBtnRowP);
+  env->DeleteLocalRef(dirBtnRow);
+  env->DeleteLocalRef(dirBtnRowP);
+  jobject dirStepRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(dirStepRow, setOrientation, 0);
+  jmethodID setGravityLL4 = env->GetMethodID(linearLayoutClass, "setGravity", "(I)V");
+  env->CallVoidMethod(dirStepRow, setGravityLL4, 17);
+  jmethodID tvSetPad2 = env->GetMethodID(uiClasses.textViewClass, "setPadding", "(IIII)V");
+  jobject ds1 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring ds1t = env->NewStringUTF("1\u00b0");
+  env->CallVoidMethod(ds1, uiClasses.setText, ds1t);
+  env->DeleteLocalRef(ds1t);
+  env->CallVoidMethod(ds1, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(ds1, uiClasses.setTextColor, (jint)0xFFFFFFFF);
+  env->CallVoidMethod(ds1, setGravity, 17);
+  env->CallVoidMethod(ds1, setId, 24);
+  env->CallVoidMethod(ds1, tvSetPad2, 24, 4, 24, 4);
+  jobject dlis1 = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(ds1, setOnClickListener, dlis1);
+  env->DeleteLocalRef(dlis1);
+  jobject ds01 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring ds01t = env->NewStringUTF("0.1\u00b0");
+  env->CallVoidMethod(ds01, uiClasses.setText, ds01t);
+  env->DeleteLocalRef(ds01t);
+  env->CallVoidMethod(ds01, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(ds01, uiClasses.setTextColor, (jint)0xFF666666);
+  env->CallVoidMethod(ds01, setGravity, 17);
+  env->CallVoidMethod(ds01, setId, 25);
+  env->CallVoidMethod(ds01, tvSetPad2, 24, 4, 24, 4);
+  jobject dlis2 = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(ds01, setOnClickListener, dlis2);
+  env->DeleteLocalRef(dlis2);
+  jobject ds001 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring ds001t = env->NewStringUTF("0.01\u00b0");
+  env->CallVoidMethod(ds001, uiClasses.setText, ds001t);
+  env->DeleteLocalRef(ds001t);
+  env->CallVoidMethod(ds001, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(ds001, uiClasses.setTextColor, (jint)0xFF666666);
+  env->CallVoidMethod(ds001, setGravity, 17);
+  env->CallVoidMethod(ds001, setId, 26);
+  env->CallVoidMethod(ds001, tvSetPad2, 24, 4, 24, 4);
+  jobject dlis3 = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(ds001, setOnClickListener, dlis3);
+  env->DeleteLocalRef(dlis3);
+  g_dirStepBtn1    = env->NewGlobalRef(ds1);
+  g_dirStepBtn01   = env->NewGlobalRef(ds01);
+  g_dirStepBtn001  = env->NewGlobalRef(ds001);
+  jobject ds0001 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring ds0001t = env->NewStringUTF("0.001\u00b0");
+  env->CallVoidMethod(ds0001, uiClasses.setText, ds0001t);
+  env->DeleteLocalRef(ds0001t);
+  env->CallVoidMethod(ds0001, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(ds0001, uiClasses.setTextColor, (jint)0xFF666666);
+  env->CallVoidMethod(ds0001, setGravity, 17);
+  env->CallVoidMethod(ds0001, setId, 31);
+  env->CallVoidMethod(ds0001, tvSetPad2, 24, 4, 24, 4);
+  jobject dlis4 = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(ds0001, setOnClickListener, dlis4);
+  env->DeleteLocalRef(dlis4);
+  g_dirStepBtn0001 = env->NewGlobalRef(ds0001);
+  jobject dsp1 = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  jobject dsp2 = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  jobject dsp3 = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  jobject dsp4 = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(dirStepRow, addView, ds1, dsp1);
+  env->CallVoidMethod(dirStepRow, addView, ds01, dsp2);
+  env->CallVoidMethod(dirStepRow, addView, ds001, dsp3);
+  env->CallVoidMethod(dirStepRow, addView, ds0001, dsp4);
+  env->DeleteLocalRef(ds1);
+  env->DeleteLocalRef(ds01);
+  env->DeleteLocalRef(ds001);
+  env->DeleteLocalRef(ds0001);
+  env->DeleteLocalRef(dsp1);
+  env->DeleteLocalRef(dsp2);
+  env->DeleteLocalRef(dsp3);
+  env->DeleteLocalRef(dsp4);
+  jobject dirStepRowP = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->CallVoidMethod(content, addView, dirStepRow, dirStepRowP);
+  env->DeleteLocalRef(dirStepRow);
+  env->DeleteLocalRef(dirStepRowP);
+#endif 
+#ifdef ADVANCED_CONTROLS
+  jobject shotBtn =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring shotText = env->NewStringUTF(decryptStr(ENC_TAKE_SHOT, sizeof(ENC_TAKE_SHOT)).c_str());
+  env->CallVoidMethod(shotBtn, uiClasses.setText, shotText);
+  env->DeleteLocalRef(shotText);
+  env->CallVoidMethod(shotBtn, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(shotBtn, uiClasses.setTextColor, (jint)0xFF00FF88);
+  env->CallVoidMethod(shotBtn, setGravity, 17); 
+  env->CallVoidMethod(shotBtn, setId, 15);
+  jclass gdClass = env->FindClass("android/graphics/drawable/GradientDrawable");
+  jmethodID gdCtor = env->GetMethodID(gdClass, "<init>", "()V");
+  jmethodID gdSetColor = env->GetMethodID(gdClass, "setColor", "(I)V");
+  jmethodID gdSetCornerRadius = env->GetMethodID(gdClass, "setCornerRadius", "(F)V");
+  jmethodID gdSetStroke = env->GetMethodID(gdClass, "setStroke", "(II)V");
+  jobject shotBg = env->NewObject(gdClass, gdCtor);
+  env->CallVoidMethod(shotBg, gdSetColor, (jint)0xFF1A3320);
+  env->CallVoidMethod(shotBg, gdSetCornerRadius, 12.0f);
+  env->CallVoidMethod(shotBg, gdSetStroke, 2, (jint)0xFF00FF88);
+  env->CallVoidMethod(shotBtn, setBackground, shotBg);
+  env->DeleteLocalRef(shotBg);
+  env->DeleteLocalRef(gdClass);
+  jmethodID setPadding = env->GetMethodID(viewClass, "setPadding", "(IIII)V");
+  env->CallVoidMethod(shotBtn, setPadding, 40, 16, 40, 16);
+  jobject listenerShot =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(shotBtn, setOnClickListener, listenerShot);
+  env->DeleteLocalRef(listenerShot);
+  jobject shotBtnParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(shotBtnParams, topMarginF, 10);
+  env->CallVoidMethod(content, addView, shotBtn, shotBtnParams);
+  env->DeleteLocalRef(shotBtn);
+  env->DeleteLocalRef(shotBtnParams);
+  jobject smartSavedRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(smartSavedRow, setOrientation, 0); 
+  jobject smartBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring smartText = env->NewStringUTF(decryptStr(ENC_RESTORE, sizeof(ENC_RESTORE)).c_str());
+  env->CallVoidMethod(smartBtn, uiClasses.setText, smartText);
+  env->DeleteLocalRef(smartText);
+  env->CallVoidMethod(smartBtn, uiClasses.setTextSize, 13.0f);
+  env->CallVoidMethod(smartBtn, uiClasses.setTextColor, (jint)0xFFFFAA00);
+  env->CallVoidMethod(smartBtn, setGravity, 17); 
+  env->CallVoidMethod(smartBtn, setId, 32);
+  env->CallVoidMethod(smartBtn, setPadding, 20, 14, 20, 14);
+  jclass gdClassSm = env->FindClass("android/graphics/drawable/GradientDrawable");
+  jmethodID gdCtorSm = env->GetMethodID(gdClassSm, "<init>", "()V");
+  jmethodID gdSetColorSm = env->GetMethodID(gdClassSm, "setColor", "(I)V");
+  jmethodID gdSetCRSm = env->GetMethodID(gdClassSm, "setCornerRadius", "(F)V");
+  jmethodID gdSetStrokeSm = env->GetMethodID(gdClassSm, "setStroke", "(II)V");
+  jobject smartBg = env->NewObject(gdClassSm, gdCtorSm);
+  env->CallVoidMethod(smartBg, gdSetColorSm, (jint)0xFF2A2200);
+  env->CallVoidMethod(smartBg, gdSetCRSm, 10.0f);
+  env->CallVoidMethod(smartBg, gdSetStrokeSm, 2, (jint)0xFFFFAA00);
+  env->CallVoidMethod(smartBtn, setBackground, smartBg);
+  env->DeleteLocalRef(smartBg);
+  jobject lsnrSmart = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(smartBtn, setOnClickListener, lsnrSmart);
+  env->DeleteLocalRef(lsnrSmart);
+  jobject smartParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  jfieldID rightMarginSm = env->GetFieldID(llParamsClass, "rightMargin", "I");
+  env->SetIntField(smartParams, rightMarginSm, 4);
+  env->CallVoidMethod(smartSavedRow, addView, smartBtn, smartParams);
+  env->DeleteLocalRef(smartBtn);
+  env->DeleteLocalRef(smartParams);
+  jobject savedBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring savedText = env->NewStringUTF(decryptStr(ENC_CLEAN, sizeof(ENC_CLEAN)).c_str());
+  env->CallVoidMethod(savedBtn, uiClasses.setText, savedText);
+  env->DeleteLocalRef(savedText);
+  env->CallVoidMethod(savedBtn, uiClasses.setTextSize, 13.0f);
+  env->CallVoidMethod(savedBtn, uiClasses.setTextColor, (jint)0xFFAA88FF);
+  env->CallVoidMethod(savedBtn, setGravity, 17); 
+  env->CallVoidMethod(savedBtn, setId, 33);
+  env->CallVoidMethod(savedBtn, setPadding, 20, 14, 20, 14);
+  jobject savedBg = env->NewObject(gdClassSm, gdCtorSm);
+  env->CallVoidMethod(savedBg, gdSetColorSm, (jint)0xFF1A1533);
+  env->CallVoidMethod(savedBg, gdSetCRSm, 10.0f);
+  env->CallVoidMethod(savedBg, gdSetStrokeSm, 2, (jint)0xFFAA88FF);
+  env->CallVoidMethod(savedBtn, setBackground, savedBg);
+  env->DeleteLocalRef(savedBg);
+  env->DeleteLocalRef(gdClassSm);
+  jobject lsnrSaved = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(savedBtn, setOnClickListener, lsnrSaved);
+  env->DeleteLocalRef(lsnrSaved);
+  jobject savedParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  jfieldID leftMarginSv = env->GetFieldID(llParamsClass, "leftMargin", "I");
+  env->SetIntField(savedParams, leftMarginSv, 4);
+  env->CallVoidMethod(smartSavedRow, addView, savedBtn, savedParams);
+  env->DeleteLocalRef(savedBtn);
+  env->DeleteLocalRef(savedParams);
+  jobject ssRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(ssRowParams, topMarginF, 8);
+  env->CallVoidMethod(content, addView, smartSavedRow, ssRowParams);
+  env->DeleteLocalRef(smartSavedRow);
+  env->DeleteLocalRef(ssRowParams);
+  jobject fastAutoRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(fastAutoRow, setOrientation, 0); 
+  jclass     gdClass2        = env->FindClass("android/graphics/drawable/GradientDrawable");
+  jmethodID  gdCtor2         = env->GetMethodID(gdClass2, "<init>", "()V");
+  jmethodID  gdSetColor2     = env->GetMethodID(gdClass2, "setColor", "(I)V");
+  jmethodID  gdSetCornerRadius2 = env->GetMethodID(gdClass2, "setCornerRadius", "(F)V");
+  jmethodID  gdSetStroke2    = env->GetMethodID(gdClass2, "setStroke", "(II)V");
+  jobject fastBtn =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring fastText = env->NewStringUTF(decryptStr(ENC_FAST, sizeof(ENC_FAST)).c_str());
+  env->CallVoidMethod(fastBtn, uiClasses.setText, fastText);
+  env->DeleteLocalRef(fastText);
+  env->CallVoidMethod(fastBtn, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(fastBtn, uiClasses.setTextColor, (jint)0xFFFFCC00);
+  env->CallVoidMethod(fastBtn, setGravity, 17); 
+  env->CallVoidMethod(fastBtn, setId, 48);
+  jobject fastBg = env->NewObject(gdClass2, gdCtor2);
+  env->CallVoidMethod(fastBg, gdSetColor2, (jint)0xFF332200);
+  env->CallVoidMethod(fastBg, gdSetCornerRadius2, 12.0f);
+  env->CallVoidMethod(fastBg, gdSetStroke2, 2, (jint)0xFFFFCC00);
+  env->CallVoidMethod(fastBtn, setBackground, fastBg);
+  env->DeleteLocalRef(fastBg);
+  env->CallVoidMethod(fastBtn, setPadding, 20, 16, 20, 16);
+  jobject listenerFast =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(fastBtn, setOnClickListener, listenerFast);
+  env->DeleteLocalRef(listenerFast);
+  jobject fastParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  jfieldID rightMarginFa = env->GetFieldID(llParamsClass, "rightMargin", "I");
+  env->SetIntField(fastParams, rightMarginFa, 4);
+  env->CallVoidMethod(fastAutoRow, addView, fastBtn, fastParams);
+  env->DeleteLocalRef(fastBtn);
+  env->DeleteLocalRef(fastParams);
+  jobject autoBtn =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring autoText = env->NewStringUTF(decryptStr(ENC_AUTO_AIM, sizeof(ENC_AUTO_AIM)).c_str());
+  env->CallVoidMethod(autoBtn, uiClasses.setText, autoText);
+  env->DeleteLocalRef(autoText);
+  env->CallVoidMethod(autoBtn, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(autoBtn, uiClasses.setTextColor, (jint)0xFF00CCFF);
+  env->CallVoidMethod(autoBtn, setGravity, 17); 
+  env->CallVoidMethod(autoBtn, setId, 27);
+  jobject autoBg = env->NewObject(gdClass2, gdCtor2);
+  env->CallVoidMethod(autoBg, gdSetColor2, (jint)0xFF0D2233);
+  env->CallVoidMethod(autoBg, gdSetCornerRadius2, 12.0f);
+  env->CallVoidMethod(autoBg, gdSetStroke2, 2, (jint)0xFF00CCFF);
+  env->CallVoidMethod(autoBtn, setBackground, autoBg);
+  env->DeleteLocalRef(autoBg);
+  env->DeleteLocalRef(gdClass2);
+  env->CallVoidMethod(autoBtn, setPadding, 20, 16, 20, 16);
+  jobject listenerAuto =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(autoBtn, setOnClickListener, listenerAuto);
+  env->DeleteLocalRef(listenerAuto);
+  jobject autoBtnParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  jfieldID leftMarginAu = env->GetFieldID(llParamsClass, "leftMargin", "I");
+  env->SetIntField(autoBtnParams, leftMarginAu, 4);
+  env->CallVoidMethod(fastAutoRow, addView, autoBtn, autoBtnParams);
+  env->DeleteLocalRef(autoBtn);
+  env->DeleteLocalRef(autoBtnParams);
+  jobject faRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(faRowParams, topMarginF, 10);
+  env->CallVoidMethod(content, addView, fastAutoRow, faRowParams);
+  env->DeleteLocalRef(fastAutoRow);
+  env->DeleteLocalRef(faRowParams);
+  jobject modeRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(modeRow, setOrientation, 0); 
+  jobject dirToggle = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring dirToggleText = env->NewStringUTF(decryptStr(ENC_DIRECTION_LABEL, sizeof(ENC_DIRECTION_LABEL)).c_str());
+  env->CallVoidMethod(dirToggle, uiClasses.setText, dirToggleText);
+  env->DeleteLocalRef(dirToggleText);
+  env->CallVoidMethod(dirToggle, uiClasses.setTextSize, 12.0f);
+  env->CallVoidMethod(dirToggle, uiClasses.setTextColor, (jint)0xFF888888);
+  env->CallVoidMethod(dirToggle, setGravity, 17);
+  env->CallVoidMethod(dirToggle, setId, 28);
+  env->CallVoidMethod(dirToggle, setPadding, 16, 10, 16, 10);
+  jclass gdClassM = env->FindClass("android/graphics/drawable/GradientDrawable");
+  jmethodID gdCtorM = env->GetMethodID(gdClassM, "<init>", "()V");
+  jmethodID gdSetColorM = env->GetMethodID(gdClassM, "setColor", "(I)V");
+  jmethodID gdSetCRM = env->GetMethodID(gdClassM, "setCornerRadius", "(F)V");
+  jmethodID gdSetStrokeM = env->GetMethodID(gdClassM, "setStroke", "(II)V");
+  jobject dirBg = env->NewObject(gdClassM, gdCtorM);
+  env->CallVoidMethod(dirBg, gdSetColorM, (jint)0xFF1A1A2E);
+  env->CallVoidMethod(dirBg, gdSetCRM, 8.0f);
+  env->CallVoidMethod(dirBg, gdSetStrokeM, 1, (jint)0xFF555555);
+  env->CallVoidMethod(dirToggle, setBackground, dirBg);
+  env->DeleteLocalRef(dirBg);
+  jobject lsnrDir = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(dirToggle, setOnClickListener, lsnrDir);
+  env->DeleteLocalRef(lsnrDir);
+  jobject dirParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  jfieldID rightMarginF2 = env->GetFieldID(llParamsClass, "rightMargin", "I");
+  env->SetIntField(dirParams, rightMarginF2, 4);
+  env->CallVoidMethod(modeRow, addView, dirToggle, dirParams);
+  g_autoAimDirToggle = env->NewGlobalRef(dirToggle);
+  env->DeleteLocalRef(dirToggle);
+  env->DeleteLocalRef(dirParams);
+  jobject pwrToggle = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring pwrToggleText = env->NewStringUTF(decryptStr(ENC_POWER_MODE, sizeof(ENC_POWER_MODE)).c_str());
+  env->CallVoidMethod(pwrToggle, uiClasses.setText, pwrToggleText);
+  env->DeleteLocalRef(pwrToggleText);
+  env->CallVoidMethod(pwrToggle, uiClasses.setTextSize, 12.0f);
+  env->CallVoidMethod(pwrToggle, uiClasses.setTextColor, (jint)0xFF888888);
+  env->CallVoidMethod(pwrToggle, setGravity, 17);
+  env->CallVoidMethod(pwrToggle, setId, 29);
+  env->CallVoidMethod(pwrToggle, setPadding, 16, 10, 16, 10);
+  jobject pwrBg = env->NewObject(gdClassM, gdCtorM);
+  env->CallVoidMethod(pwrBg, gdSetColorM, (jint)0xFF1A1A2E);
+  env->CallVoidMethod(pwrBg, gdSetCRM, 8.0f);
+  env->CallVoidMethod(pwrBg, gdSetStrokeM, 1, (jint)0xFF555555);
+  env->CallVoidMethod(pwrToggle, setBackground, pwrBg);
+  env->DeleteLocalRef(pwrBg);
+  env->DeleteLocalRef(gdClassM);
+  jobject lsnrPwr = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(pwrToggle, setOnClickListener, lsnrPwr);
+  env->DeleteLocalRef(lsnrPwr);
+  jobject pwrParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  jfieldID leftMarginF2 = env->GetFieldID(llParamsClass, "leftMargin", "I");
+  env->SetIntField(pwrParams, leftMarginF2, 4);
+  env->CallVoidMethod(modeRow, addView, pwrToggle, pwrParams);
+  g_autoAimPwrToggle = env->NewGlobalRef(pwrToggle);
+  env->DeleteLocalRef(pwrToggle);
+  env->DeleteLocalRef(pwrParams);
+  jobject modeRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(modeRowParams, topMarginF, 6);
+  env->CallVoidMethod(content, addView, modeRow, modeRowParams);
+  env->DeleteLocalRef(modeRow);
+  env->DeleteLocalRef(modeRowParams);
+  jobject refineRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(refineRow, setOrientation, 0); 
+  jclass gdClassR = env->FindClass("android/graphics/drawable/GradientDrawable");
+  jmethodID gdCtorR = env->GetMethodID(gdClassR, "<init>", "()V");
+  jmethodID gdSetColorR = env->GetMethodID(gdClassR, "setColor", "(I)V");
+  jmethodID gdSetCRR = env->GetMethodID(gdClassR, "setCornerRadius", "(F)V");
+  jmethodID gdSetStrokeR = env->GetMethodID(gdClassR, "setStroke", "(II)V");
+  jobject refineBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring refineText = env->NewStringUTF(decryptStr(ENC_REFINE, sizeof(ENC_REFINE)).c_str());
+  env->CallVoidMethod(refineBtn, uiClasses.setText, refineText);
+  env->DeleteLocalRef(refineText);
+  env->CallVoidMethod(refineBtn, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(refineBtn, uiClasses.setTextColor, (jint)0xFFFF8800);
+  env->CallVoidMethod(refineBtn, setGravity, 17); 
+  env->CallVoidMethod(refineBtn, setId, 36);
+  env->CallVoidMethod(refineBtn, setPadding, 20, 16, 20, 16);
+  jobject refineBg = env->NewObject(gdClassR, gdCtorR);
+  env->CallVoidMethod(refineBg, gdSetColorR, (jint)0xFF1F1000);
+  env->CallVoidMethod(refineBg, gdSetCRR, 12.0f);
+  env->CallVoidMethod(refineBg, gdSetStrokeR, 2, (jint)0xFFFF8800);
+  env->CallVoidMethod(refineBtn, setBackground, refineBg);
+  env->DeleteLocalRef(refineBg);
+  jobject listenerRefine = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(refineBtn, setOnClickListener, listenerRefine);
+  env->DeleteLocalRef(listenerRefine);
+  jobject refineBtnParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->SetIntField(refineBtnParams, rightMarginF2, 4);
+  env->CallVoidMethod(refineRow, addView, refineBtn, refineBtnParams);
+  env->DeleteLocalRef(refineBtn);
+  env->DeleteLocalRef(refineBtnParams);
+  jobject aggRefineBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring aggRefineText = env->NewStringUTF(decryptStr(ENC_AGG_REFINE, sizeof(ENC_AGG_REFINE)).c_str());
+  env->CallVoidMethod(aggRefineBtn, uiClasses.setText, aggRefineText);
+  env->DeleteLocalRef(aggRefineText);
+  env->CallVoidMethod(aggRefineBtn, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(aggRefineBtn, uiClasses.setTextColor, (jint)0xFFFF8800);
+  env->CallVoidMethod(aggRefineBtn, setGravity, 17); 
+  env->CallVoidMethod(aggRefineBtn, setId, 49);
+  env->CallVoidMethod(aggRefineBtn, setPadding, 20, 16, 20, 16);
+  jobject aggRefineBg = env->NewObject(gdClassR, gdCtorR);
+  env->CallVoidMethod(aggRefineBg, gdSetColorR, (jint)0xFF1F1000);
+  env->CallVoidMethod(aggRefineBg, gdSetCRR, 12.0f);
+  env->CallVoidMethod(aggRefineBg, gdSetStrokeR, 2, (jint)0xFFFF8800);
+  env->CallVoidMethod(aggRefineBtn, setBackground, aggRefineBg);
+  env->DeleteLocalRef(aggRefineBg);
+  jobject listenerAggRefine = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(aggRefineBtn, setOnClickListener, listenerAggRefine);
+  env->DeleteLocalRef(listenerAggRefine);
+  jobject aggRefineBtnParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->SetIntField(aggRefineBtnParams, leftMarginF2, 4);
+  env->CallVoidMethod(refineRow, addView, aggRefineBtn, aggRefineBtnParams);
+  env->DeleteLocalRef(aggRefineBtn);
+  env->DeleteLocalRef(aggRefineBtnParams);
+  env->DeleteLocalRef(gdClassR);
+  jobject refineRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(refineRowParams, topMarginF, 6);
+  env->CallVoidMethod(content, addView, refineRow, refineRowParams);
+  env->DeleteLocalRef(refineRow);
+  env->DeleteLocalRef(refineRowParams);
+  jobject spinRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(spinRow, setOrientation, 0); 
+  jobject spinBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring spinBtnText = env->NewStringUTF(decryptStr(ENC_SPIN, sizeof(ENC_SPIN)).c_str());
+  env->CallVoidMethod(spinBtn, uiClasses.setText, spinBtnText);
+  env->DeleteLocalRef(spinBtnText);
+  env->CallVoidMethod(spinBtn, uiClasses.setTextSize, 13.0f);
+  env->CallVoidMethod(spinBtn, uiClasses.setTextColor, (jint)0xFF66DDFF);
+  env->CallVoidMethod(spinBtn, setGravity, 17); 
+  env->CallVoidMethod(spinBtn, setId, 37);
+  env->CallVoidMethod(spinBtn, setPadding, 40, 12, 40, 12);
+  jclass gdClassSpin = env->FindClass("android/graphics/drawable/GradientDrawable");
+  jmethodID gdCtorSpin = env->GetMethodID(gdClassSpin, "<init>", "()V");
+  jmethodID gdSetColorSpin = env->GetMethodID(gdClassSpin, "setColor", "(I)V");
+  jmethodID gdSetCRSpin = env->GetMethodID(gdClassSpin, "setCornerRadius", "(F)V");
+  jmethodID gdSetStrokeSpin = env->GetMethodID(gdClassSpin, "setStroke", "(II)V");
+  jobject spinBg = env->NewObject(gdClassSpin, gdCtorSpin);
+  env->CallVoidMethod(spinBg, gdSetColorSpin, (jint)0xFF07141B);
+  env->CallVoidMethod(spinBg, gdSetCRSpin, 12.0f);
+  env->CallVoidMethod(spinBg, gdSetStrokeSpin, 2, (jint)0xFF66DDFF);
+  env->CallVoidMethod(spinBtn, setBackground, spinBg);
+  env->DeleteLocalRef(spinBg);
+  jobject listenerSpin = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(spinBtn, setOnClickListener, listenerSpin);
+  env->DeleteLocalRef(listenerSpin);
+  jobject spinBtnParams =
+      env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->SetIntField(spinBtnParams, rightMarginF2, 4);
+  env->CallVoidMethod(spinRow, addView, spinBtn, spinBtnParams);
+  env->DeleteLocalRef(spinBtn);
+  env->DeleteLocalRef(spinBtnParams);
+  jobject aggSpinBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring aggSpinBtnText = env->NewStringUTF(
+      decryptStr(ENC_AGG_SPIN, sizeof(ENC_AGG_SPIN)).c_str());
+  env->CallVoidMethod(aggSpinBtn, uiClasses.setText, aggSpinBtnText);
+  env->DeleteLocalRef(aggSpinBtnText);
+  env->CallVoidMethod(aggSpinBtn, uiClasses.setTextSize, 13.0f);
+  env->CallVoidMethod(aggSpinBtn, uiClasses.setTextColor, (jint)0xFFFF66CC);
+  env->CallVoidMethod(aggSpinBtn, setGravity, 17); 
+  env->CallVoidMethod(aggSpinBtn, setId, 38);
+  env->CallVoidMethod(aggSpinBtn, setPadding, 40, 12, 40, 12);
+  jobject aggSpinBg = env->NewObject(gdClassSpin, gdCtorSpin);
+  env->CallVoidMethod(aggSpinBg, gdSetColorSpin, (jint)0xFF1B0714);
+  env->CallVoidMethod(aggSpinBg, gdSetCRSpin, 12.0f);
+  env->CallVoidMethod(aggSpinBg, gdSetStrokeSpin, 2, (jint)0xFFFF66CC);
+  env->CallVoidMethod(aggSpinBtn, setBackground, aggSpinBg);
+  env->DeleteLocalRef(aggSpinBg);
+  jobject listenerAggSpin = env->NewObject(uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"), activity);
+  env->CallVoidMethod(aggSpinBtn, setOnClickListener, listenerAggSpin);
+  env->DeleteLocalRef(listenerAggSpin);
+  jobject aggSpinBtnParams =
+      env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->SetIntField(aggSpinBtnParams, leftMarginF2, 4);
+  env->CallVoidMethod(spinRow, addView, aggSpinBtn, aggSpinBtnParams);
+  env->DeleteLocalRef(aggSpinBtn);
+  env->DeleteLocalRef(aggSpinBtnParams);
+  env->DeleteLocalRef(gdClassSpin);
+  jobject spinRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(spinRowParams, topMarginF, 6);
+  env->CallVoidMethod(content, addView, spinRow, spinRowParams);
+  env->DeleteLocalRef(spinRow);
+  env->DeleteLocalRef(spinRowParams);
+  jobject aggRingRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(aggRingRow, setOrientation, 0); 
+  env->CallVoidMethod(aggRingRow, llSetGravity, 17);  
+  jmethodID tvSetPadAgg =
+      env->GetMethodID(uiClasses.textViewClass, "setPadding", "(IIII)V");
+  jclass gdClassAgg = env->FindClass("android/graphics/drawable/GradientDrawable");
+  jmethodID gdCtorAgg = env->GetMethodID(gdClassAgg, "<init>", "()V");
+  jmethodID gdSetColorAgg = env->GetMethodID(gdClassAgg, "setColor", "(I)V");
+  jmethodID gdSetCornerRadiusAgg =
+      env->GetMethodID(gdClassAgg, "setCornerRadius", "(F)V");
+  jmethodID gdSetStrokeAgg =
+      env->GetMethodID(gdClassAgg, "setStroke", "(II)V");
+  jobject aggCiBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring aggCiText =
+      env->NewStringUTF(decryptStr(ENC_AGG_CTR_IN, sizeof(ENC_AGG_CTR_IN)).c_str());
+  env->CallVoidMethod(aggCiBtn, uiClasses.setText, aggCiText);
+  env->DeleteLocalRef(aggCiText);
+  env->CallVoidMethod(aggCiBtn, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(aggCiBtn, uiClasses.setTextColor,
+                      g_aggSpinEnableCenterInner ? (jint)0xFF00FF88
+                                                 : (jint)0xFF888888);
+  env->CallVoidMethod(aggCiBtn, setGravity, 17);
+  env->CallVoidMethod(aggCiBtn, setId, 39);
+  env->CallVoidMethod(aggCiBtn, tvSetPadAgg, 18, 8, 18, 8);
+  jobject aggCiBg = env->NewObject(gdClassAgg, gdCtorAgg);
+  env->CallVoidMethod(aggCiBg, gdSetColorAgg, (jint)0xFF1A1A2E);
+  env->CallVoidMethod(aggCiBg, gdSetCornerRadiusAgg, 8.0f);
+  env->CallVoidMethod(aggCiBg, gdSetStrokeAgg, 1, (jint)0xFF555555);
+  env->CallVoidMethod(aggCiBtn, setBackground, aggCiBg);
+  env->DeleteLocalRef(aggCiBg);
+  jobject aggCiLsnr = env->NewObject(
+      uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(aggCiBtn, setOnClickListener, aggCiLsnr);
+  env->DeleteLocalRef(aggCiLsnr);
+  jobject aggCiParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->SetIntField(aggCiParams, rightMarginF2, 3);
+  env->CallVoidMethod(aggRingRow, addView, aggCiBtn, aggCiParams);
+  g_aggSpinToggleCI = env->NewGlobalRef(aggCiBtn);
+  env->DeleteLocalRef(aggCiBtn);
+  env->DeleteLocalRef(aggCiParams);
+  jobject aggMidBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring aggMidText =
+      env->NewStringUTF(decryptStr(ENC_AGG_MID, sizeof(ENC_AGG_MID)).c_str());
+  env->CallVoidMethod(aggMidBtn, uiClasses.setText, aggMidText);
+  env->DeleteLocalRef(aggMidText);
+  env->CallVoidMethod(aggMidBtn, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(aggMidBtn, uiClasses.setTextColor,
+                      g_aggSpinEnableMid ? (jint)0xFF00FF88
+                                         : (jint)0xFF888888);
+  env->CallVoidMethod(aggMidBtn, setGravity, 17);
+  env->CallVoidMethod(aggMidBtn, setId, 40);
+  env->CallVoidMethod(aggMidBtn, tvSetPadAgg, 18, 8, 18, 8);
+  jobject aggMidBg = env->NewObject(gdClassAgg, gdCtorAgg);
+  env->CallVoidMethod(aggMidBg, gdSetColorAgg, (jint)0xFF1A1A2E);
+  env->CallVoidMethod(aggMidBg, gdSetCornerRadiusAgg, 8.0f);
+  env->CallVoidMethod(aggMidBg, gdSetStrokeAgg, 1, (jint)0xFF555555);
+  env->CallVoidMethod(aggMidBtn, setBackground, aggMidBg);
+  env->DeleteLocalRef(aggMidBg);
+  jobject aggMidLsnr = env->NewObject(
+      uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(aggMidBtn, setOnClickListener, aggMidLsnr);
+  env->DeleteLocalRef(aggMidLsnr);
+  jobject aggMidParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->SetIntField(aggMidParams, rightMarginF2, 3);
+  env->CallVoidMethod(aggRingRow, addView, aggMidBtn, aggMidParams);
+  g_aggSpinToggleMid = env->NewGlobalRef(aggMidBtn);
+  env->DeleteLocalRef(aggMidBtn);
+  env->DeleteLocalRef(aggMidParams);
+  jobject aggOuterBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring aggOuterText =
+      env->NewStringUTF(decryptStr(ENC_AGG_OUTER, sizeof(ENC_AGG_OUTER)).c_str());
+  env->CallVoidMethod(aggOuterBtn, uiClasses.setText, aggOuterText);
+  env->DeleteLocalRef(aggOuterText);
+  env->CallVoidMethod(aggOuterBtn, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(aggOuterBtn, uiClasses.setTextColor,
+                      g_aggSpinEnableOuter ? (jint)0xFF00FF88
+                                           : (jint)0xFF888888);
+  env->CallVoidMethod(aggOuterBtn, setGravity, 17);
+  env->CallVoidMethod(aggOuterBtn, setId, 41);
+  env->CallVoidMethod(aggOuterBtn, tvSetPadAgg, 18, 8, 18, 8);
+  jobject aggOuterBg = env->NewObject(gdClassAgg, gdCtorAgg);
+  env->CallVoidMethod(aggOuterBg, gdSetColorAgg, (jint)0xFF1A1A2E);
+  env->CallVoidMethod(aggOuterBg, gdSetCornerRadiusAgg, 8.0f);
+  env->CallVoidMethod(aggOuterBg, gdSetStrokeAgg, 1, (jint)0xFF555555);
+  env->CallVoidMethod(aggOuterBtn, setBackground, aggOuterBg);
+  env->DeleteLocalRef(aggOuterBg);
+  jobject aggOuterLsnr = env->NewObject(
+      uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(aggOuterBtn, setOnClickListener, aggOuterLsnr);
+  env->DeleteLocalRef(aggOuterLsnr);
+  jobject aggOuterParams = env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(aggRingRow, addView, aggOuterBtn, aggOuterParams);
+  g_aggSpinToggleOuter = env->NewGlobalRef(aggOuterBtn);
+  env->DeleteLocalRef(aggOuterBtn);
+  env->DeleteLocalRef(aggOuterParams);
+  jobject aggRingRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(aggRingRowParams, topMarginF, 5);
+  env->CallVoidMethod(content, addView, aggRingRow, aggRingRowParams);
+  env->DeleteLocalRef(aggRingRow);
+  env->DeleteLocalRef(aggRingRowParams);
+  jobject aggDepthRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(aggDepthRow, setOrientation, 0); 
+  env->CallVoidMethod(aggDepthRow, llSetGravity, 17);  
+  jobject aggDepthBtn3 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring aggDepthBtn3Text = env->NewStringUTF("3");
+  env->CallVoidMethod(aggDepthBtn3, uiClasses.setText, aggDepthBtn3Text);
+  env->DeleteLocalRef(aggDepthBtn3Text);
+  env->CallVoidMethod(aggDepthBtn3, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(aggDepthBtn3, uiClasses.setTextColor,
+                      (g_aggSpinDepthCap == 3) ? (jint)0xFFFFFFFF
+                                               : (jint)0xFF666666);
+  env->CallVoidMethod(aggDepthBtn3, setGravity, 17);
+  env->CallVoidMethod(aggDepthBtn3, setId, 42);
+  env->CallVoidMethod(aggDepthBtn3, tvSetPadAgg, 20, 8, 20, 8);
+  jobject aggDepthBtn3Lsnr = env->NewObject(
+      uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(aggDepthBtn3, setOnClickListener, aggDepthBtn3Lsnr);
+  env->DeleteLocalRef(aggDepthBtn3Lsnr);
+  jobject aggDepthBtn3Params = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(aggDepthRow, addView, aggDepthBtn3, aggDepthBtn3Params);
+  g_aggSpinDepthBtn3 = env->NewGlobalRef(aggDepthBtn3);
+  env->DeleteLocalRef(aggDepthBtn3);
+  env->DeleteLocalRef(aggDepthBtn3Params);
+  jobject aggDepthBtn4 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring aggDepthBtn4Text = env->NewStringUTF("4");
+  env->CallVoidMethod(aggDepthBtn4, uiClasses.setText, aggDepthBtn4Text);
+  env->DeleteLocalRef(aggDepthBtn4Text);
+  env->CallVoidMethod(aggDepthBtn4, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(aggDepthBtn4, uiClasses.setTextColor,
+                      (g_aggSpinDepthCap == 4) ? (jint)0xFFFFFFFF
+                                               : (jint)0xFF666666);
+  env->CallVoidMethod(aggDepthBtn4, setGravity, 17);
+  env->CallVoidMethod(aggDepthBtn4, setId, 43);
+  env->CallVoidMethod(aggDepthBtn4, tvSetPadAgg, 20, 8, 20, 8);
+  jobject aggDepthBtn4Lsnr = env->NewObject(
+      uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(aggDepthBtn4, setOnClickListener, aggDepthBtn4Lsnr);
+  env->DeleteLocalRef(aggDepthBtn4Lsnr);
+  jobject aggDepthBtn4Params = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(aggDepthRow, addView, aggDepthBtn4, aggDepthBtn4Params);
+  g_aggSpinDepthBtn4 = env->NewGlobalRef(aggDepthBtn4);
+  env->DeleteLocalRef(aggDepthBtn4);
+  env->DeleteLocalRef(aggDepthBtn4Params);
+  jobject aggDepthBtn5 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring aggDepthBtn5Text = env->NewStringUTF("5");
+  env->CallVoidMethod(aggDepthBtn5, uiClasses.setText, aggDepthBtn5Text);
+  env->DeleteLocalRef(aggDepthBtn5Text);
+  env->CallVoidMethod(aggDepthBtn5, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(aggDepthBtn5, uiClasses.setTextColor,
+                      (g_aggSpinDepthCap == 5) ? (jint)0xFFFFFFFF
+                                               : (jint)0xFF666666);
+  env->CallVoidMethod(aggDepthBtn5, setGravity, 17);
+  env->CallVoidMethod(aggDepthBtn5, setId, 44);
+  env->CallVoidMethod(aggDepthBtn5, tvSetPadAgg, 20, 8, 20, 8);
+  jobject aggDepthBtn5Lsnr = env->NewObject(
+      uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(aggDepthBtn5, setOnClickListener, aggDepthBtn5Lsnr);
+  env->DeleteLocalRef(aggDepthBtn5Lsnr);
+  jobject aggDepthBtn5Params = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(aggDepthRow, addView, aggDepthBtn5, aggDepthBtn5Params);
+  g_aggSpinDepthBtn5 = env->NewGlobalRef(aggDepthBtn5);
+  env->DeleteLocalRef(aggDepthBtn5);
+  env->DeleteLocalRef(aggDepthBtn5Params);
+  jobject aggDepthBtn6 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring aggDepthBtn6Text = env->NewStringUTF("6");
+  env->CallVoidMethod(aggDepthBtn6, uiClasses.setText, aggDepthBtn6Text);
+  env->DeleteLocalRef(aggDepthBtn6Text);
+  env->CallVoidMethod(aggDepthBtn6, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(aggDepthBtn6, uiClasses.setTextColor,
+                      (g_aggSpinDepthCap == 6) ? (jint)0xFFFFFFFF
+                                               : (jint)0xFF666666);
+  env->CallVoidMethod(aggDepthBtn6, setGravity, 17);
+  env->CallVoidMethod(aggDepthBtn6, setId, 45);
+  env->CallVoidMethod(aggDepthBtn6, tvSetPadAgg, 20, 8, 20, 8);
+  jobject aggDepthBtn6Lsnr = env->NewObject(
+      uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(aggDepthBtn6, setOnClickListener, aggDepthBtn6Lsnr);
+  env->DeleteLocalRef(aggDepthBtn6Lsnr);
+  jobject aggDepthBtn6Params = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(aggDepthRow, addView, aggDepthBtn6, aggDepthBtn6Params);
+  g_aggSpinDepthBtn6 = env->NewGlobalRef(aggDepthBtn6);
+  env->DeleteLocalRef(aggDepthBtn6);
+  env->DeleteLocalRef(aggDepthBtn6Params);
+  jobject aggClimbBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  const uint8_t *encClimbLabel = (g_aggSpinClimbMode == 2) ? ENC_PP_CLIMB : ENC_P_CLIMB;
+  size_t encClimbLen = (g_aggSpinClimbMode == 2) ? sizeof(ENC_PP_CLIMB) : sizeof(ENC_P_CLIMB);
+  jstring aggClimbBtnText =
+      env->NewStringUTF(decryptStr(encClimbLabel, encClimbLen).c_str());
+  env->CallVoidMethod(aggClimbBtn, uiClasses.setText, aggClimbBtnText);
+  env->DeleteLocalRef(aggClimbBtnText);
+  env->CallVoidMethod(aggClimbBtn, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(aggClimbBtn, uiClasses.setTextColor,
+                      (g_aggSpinClimbMode > 0) ? (jint)0xFFFFFFFF : (jint)0xFF666666);
+  env->CallVoidMethod(aggClimbBtn, setGravity, 17);
+  env->CallVoidMethod(aggClimbBtn, setId, 46);
+  env->CallVoidMethod(aggClimbBtn, tvSetPadAgg, 10, 8, 10, 8);
+  jobject aggClimbBtnLsnr = env->NewObject(
+      uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(aggClimbBtn, setOnClickListener, aggClimbBtnLsnr);
+  env->DeleteLocalRef(aggClimbBtnLsnr);
+  jobject aggClimbBtnParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(aggDepthRow, addView, aggClimbBtn, aggClimbBtnParams);
+  g_aggSpinClimbBtn = env->NewGlobalRef(aggClimbBtn);
+  env->DeleteLocalRef(aggClimbBtn);
+  env->DeleteLocalRef(aggClimbBtnParams);
+  jobject aggPPSpinBtn = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  const uint8_t *encInitLabel = (g_aggSpinPSpinMode == 2) ? ENC_PP_SPIN : ENC_P_SPIN;
+  size_t encInitLen = (g_aggSpinPSpinMode == 2) ? sizeof(ENC_PP_SPIN) : sizeof(ENC_P_SPIN);
+  jstring aggPPSpinBtnText =
+      env->NewStringUTF(decryptStr(encInitLabel, encInitLen).c_str());
+  env->CallVoidMethod(aggPPSpinBtn, uiClasses.setText, aggPPSpinBtnText);
+  env->DeleteLocalRef(aggPPSpinBtnText);
+  env->CallVoidMethod(aggPPSpinBtn, uiClasses.setTextSize, 11.0f);
+  env->CallVoidMethod(aggPPSpinBtn, uiClasses.setTextColor,
+                      (g_aggSpinPSpinMode > 0) ? (jint)0xFFFFFFFF : (jint)0xFF666666);
+  env->CallVoidMethod(aggPPSpinBtn, setGravity, 17);
+  env->CallVoidMethod(aggPPSpinBtn, setId, 47);
+  env->CallVoidMethod(aggPPSpinBtn, tvSetPadAgg, 10, 8, 10, 8);
+  jobject aggPPSpinBtnLsnr = env->NewObject(
+      uiClasses.overlayClass,
+      env->GetMethodID(uiClasses.overlayClass, "<init>", "(Landroid/content/Context;)V"),
+      activity);
+  env->CallVoidMethod(aggPPSpinBtn, setOnClickListener, aggPPSpinBtnLsnr);
+  env->DeleteLocalRef(aggPPSpinBtnLsnr);
+  jobject aggPPSpinBtnParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(aggDepthRow, addView, aggPPSpinBtn, aggPPSpinBtnParams);
+  g_aggSpinPPSpinBtn = env->NewGlobalRef(aggPPSpinBtn);
+  env->DeleteLocalRef(aggPPSpinBtn);
+  env->DeleteLocalRef(aggPPSpinBtnParams);
+  jobject aggDepthRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(aggDepthRowParams, topMarginF, 3);
+  env->CallVoidMethod(content, addView, aggDepthRow, aggDepthRowParams);
+  env->DeleteLocalRef(aggDepthRow);
+  env->DeleteLocalRef(aggDepthRowParams);
+  env->DeleteLocalRef(gdClassAgg);
+#endif 
+  jobject alphaRow = env->NewObject(linearLayoutClass, llCtor, activity);
+  env->CallVoidMethod(alphaRow, setOrientation, 0); 
+  jobject alphaLabel = createStatusBox(
+      env, activity, decryptStr(ENC_TRANSPARENCY, sizeof(ENC_TRANSPARENCY)).c_str(),
+      (jint)0xFFAAAAAA, (jint)0xFF555555);
+  alphaTextView = env->NewGlobalRef(alphaLabel);
+  jobject alphaLabelParams =
+      env->NewObject(llParamsClass, llParamsCtorW, 0, -2, 1.0f);
+  env->CallVoidMethod(alphaRow, addView, alphaLabel, alphaLabelParams);
+  env->DeleteLocalRef(alphaLabel);
+  env->DeleteLocalRef(alphaLabelParams);
+  jobject alphaDown =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring minusText = env->NewStringUTF(" \u2212 ");
+  env->CallVoidMethod(alphaDown, uiClasses.setText, minusText);
+  env->DeleteLocalRef(minusText);
+  env->CallVoidMethod(alphaDown, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(alphaDown, uiClasses.setTextColor, (jint)0xFFCCCCCC);
+  env->CallVoidMethod(alphaDown, setGravity, 17); 
+  env->CallVoidMethod(alphaDown, setId, 2);
+  jobject listener2 =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(alphaDown, setOnClickListener, listener2);
+  env->DeleteLocalRef(listener2);
+  jobject minusParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(alphaRow, addView, alphaDown, minusParams);
+  env->DeleteLocalRef(alphaDown);
+  env->DeleteLocalRef(minusParams);
+  jobject alphaUp =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring plusText = env->NewStringUTF(" + ");
+  env->CallVoidMethod(alphaUp, uiClasses.setText, plusText);
+  env->DeleteLocalRef(plusText);
+  env->CallVoidMethod(alphaUp, uiClasses.setTextSize, 14.0f);
+  env->CallVoidMethod(alphaUp, uiClasses.setTextColor, (jint)0xFFCCCCCC);
+  env->CallVoidMethod(alphaUp, setGravity, 17); 
+  env->CallVoidMethod(alphaUp, setId, 3);
+  jobject listener3 =
+      env->NewObject(uiClasses.overlayClass,
+                     env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                      "(Landroid/content/Context;)V"),
+                     activity);
+  env->CallVoidMethod(alphaUp, setOnClickListener, listener3);
+  env->DeleteLocalRef(listener3);
+  jobject plusParams = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+  env->CallVoidMethod(alphaRow, addView, alphaUp, plusParams);
+  env->DeleteLocalRef(alphaUp);
+  env->DeleteLocalRef(plusParams);
+  jobject alphaRowParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(alphaRowParams, topMarginF, 10);
+  env->CallVoidMethod(content, addView, alphaRow, alphaRowParams);
+  env->DeleteLocalRef(alphaRow);
+  env->DeleteLocalRef(alphaRowParams);
+  {
+    jobject sepRow2 = env->NewObject(linearLayoutClass, llCtor, activity);
+    env->CallVoidMethod(sepRow2, setOrientation, 0); 
+    env->CallVoidMethod(sepRow2, llSetGravity, 16);  
+    jobject leftLine2 = env->NewObject(viewClass, viewCtor, activity);
+    env->CallVoidMethod(leftLine2, setBgColor, (jint)0xFF333333);
+    jobject leftLine2Params = env->NewObject(llParamsClass, llParamsCtorW, 0, 1, 1.0f);
+    env->CallVoidMethod(sepRow2, addView, leftLine2, leftLine2Params);
+    env->DeleteLocalRef(leftLine2);
+    env->DeleteLocalRef(leftLine2Params);
+    jobject sepLabel2 = env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring sepStr2 = env->NewStringUTF(decryptStr(ENC_SEP_EXTRA, sizeof(ENC_SEP_EXTRA)).c_str());
+    env->CallVoidMethod(sepLabel2, uiClasses.setText, sepStr2);
+    env->DeleteLocalRef(sepStr2);
+    env->CallVoidMethod(sepLabel2, uiClasses.setTextSize, 9.0f);
+    env->CallVoidMethod(sepLabel2, uiClasses.setTextColor, (jint)0xFF555555);
+    env->CallVoidMethod(sepLabel2, setGravity, 17); 
+    env->CallVoidMethod(sepLabel2, uiClasses.setPadding, 12, 0, 12, 0);
+    jobject sepLabel2Params = env->NewObject(llParamsClass, llParamsCtor, -2, -2);
+    env->CallVoidMethod(sepRow2, addView, sepLabel2, sepLabel2Params);
+    env->DeleteLocalRef(sepLabel2);
+    env->DeleteLocalRef(sepLabel2Params);
+    jobject rightLine2 = env->NewObject(viewClass, viewCtor, activity);
+    env->CallVoidMethod(rightLine2, setBgColor, (jint)0xFF333333);
+    jobject rightLine2Params = env->NewObject(llParamsClass, llParamsCtorW, 0, 1, 1.0f);
+    env->CallVoidMethod(sepRow2, addView, rightLine2, rightLine2Params);
+    env->DeleteLocalRef(rightLine2);
+    env->DeleteLocalRef(rightLine2Params);
+    jobject sepRow2Params = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->SetIntField(sepRow2Params, topMarginF, 24);
+    env->SetIntField(sepRow2Params, bottomMarginF, 14);
+    env->CallVoidMethod(content, addView, sepRow2, sepRow2Params);
+    env->DeleteLocalRef(sepRow2);
+    env->DeleteLocalRef(sepRow2Params);
+  }
+  jobject powerBox = createStatusBox(
+      env, activity, decryptStr(ENC_POWER, sizeof(ENC_POWER)).c_str(),
+      (jint)0xFFFFFF00, (jint)0xFFFFFF00);
+  powerTextView = env->NewGlobalRef(powerBox);
+  addStatusBox(env, content, powerBox);
+  env->DeleteLocalRef(powerBox);
+  std::string spinStatusText = formatSpinStatusText(lastSpinX, lastSpinY);
+  jobject spinBox = createStatusBox(
+      env, activity, spinStatusText.c_str(),
+      (jint)0xFF00FFFF, (jint)0xFF00FFFF);
+  spinTextView = env->NewGlobalRef(spinBox);
+  addStatusBox(env, content, spinBox);
+  env->DeleteLocalRef(spinBox);
+  jobject dirBox = createStatusBox(env, activity,
+                                   decryptStr(ENC_DIR, sizeof(ENC_DIR)).c_str(),
+                                   (jint)0xFF00FF88, (jint)0xFF00FF88);
+  directionTextView = env->NewGlobalRef(dirBox);
+  addStatusBox(env, content, dirBox);
+  env->DeleteLocalRef(dirBox);
+  if (!g_latestVersion.empty()) {
+    std::string verLabel = decryptStr(ENC_BUILDV, sizeof(ENC_BUILDV)) + g_latestVersion + decryptStr(ENC_TURRET, sizeof(ENC_TURRET));
+    jobject versionTv =
+        env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+    jstring verStr = env->NewStringUTF(verLabel.c_str());
+    env->CallVoidMethod(versionTv, uiClasses.setText, verStr);
+    env->DeleteLocalRef(verStr);
+    env->CallVoidMethod(versionTv, uiClasses.setTextSize, 9.0f);
+    env->CallVoidMethod(versionTv, uiClasses.setTextColor, (jint)0xFF666666);
+    env->CallVoidMethod(versionTv, setGravity, 17); 
+    g_versionTextView = env->NewGlobalRef(versionTv);
+    jobject verParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+    env->SetIntField(verParams, topMarginF, 6);
+    env->CallVoidMethod(content, addView, versionTv, verParams);
+    env->DeleteLocalRef(versionTv);
+    env->DeleteLocalRef(verParams);
+  }
+  jclass scrollViewClass = env->FindClass("android/widget/ScrollView");
+  jmethodID scrollViewCtor =
+      env->GetMethodID(scrollViewClass, "<init>", "(Landroid/content/Context;)V");
+  jobject scrollView = env->NewObject(scrollViewClass, scrollViewCtor, activity);
+  env->CallVoidMethod(scrollView, setLayoutDir, 0);
+  jmethodID svAddView = env->GetMethodID(
+      scrollViewClass, "addView", "(Landroid/view/View;)V");
+  env->CallVoidMethod(scrollView, svAddView, content);
+  env->DeleteLocalRef(content);
+  env->DeleteLocalRef(scrollViewClass);
+  contentContainer = env->NewGlobalRef(scrollView);
+  jobject scrollParams = env->NewObject(llParamsClass, llParamsCtor, -1, 350);
+  env->CallVoidMethod(mainLayout, addView, scrollView, scrollParams);
+  env->DeleteLocalRef(scrollView);
+  env->DeleteLocalRef(scrollParams);
+  jobject timerView =
+      env->NewObject(uiClasses.textViewClass, uiClasses.textViewCtor, activity);
+  jstring timerInitStr = env->NewStringUTF(decryptStr(ENC_WAIT_KEY, sizeof(ENC_WAIT_KEY)).c_str());
+  env->CallVoidMethod(timerView, uiClasses.setText, timerInitStr);
+  env->DeleteLocalRef(timerInitStr);
+  env->CallVoidMethod(timerView, uiClasses.setTextSize, 9.0f);
+  env->CallVoidMethod(timerView, uiClasses.setTextColor, (jint)0xFF888888);
+  if (uiClasses.monospaceTypeface)
+    env->CallVoidMethod(timerView, uiClasses.setTypeface,
+                        uiClasses.monospaceTypeface);
+  env->CallVoidMethod(timerView, uiClasses.setPadding, 15, 10, 15, 10);
+  env->CallVoidMethod(timerView, setGravity, 17); 
+  env->CallVoidMethod(timerView, setLayoutDir, 0);
+  jobject timerBg = env->NewObject(uiClasses.gradientDrawableClass,
+                                   uiClasses.gradientDrawableCtor);
+  env->CallVoidMethod(timerBg, uiClasses.setColor, (jint)0x55000000);
+  env->CallVoidMethod(timerBg, uiClasses.setStroke, 1, (jint)0xFF333333);
+  env->CallVoidMethod(timerView, uiClasses.setBackground, timerBg);
+  env->DeleteLocalRef(timerBg);
+  g_timerTextView = env->NewGlobalRef(timerView);
+  jobject timerParams = env->NewObject(llParamsClass, llParamsCtor, -1, -2);
+  env->SetIntField(timerParams, topMarginF, 0);
+  env->CallVoidMethod(mainLayout, addView, timerView, timerParams);
+  env->DeleteLocalRef(timerView);
+  env->DeleteLocalRef(timerParams);
+  jclass flParamsClass =
+      env->FindClass("android/widget/FrameLayout$LayoutParams");
+  jmethodID flParamsCtor = env->GetMethodID(flParamsClass, "<init>", "(II)V");
+  jobject params = env->NewObject(flParamsClass, flParamsCtor, 550, -2);
+  jfieldID gravityField = env->GetFieldID(flParamsClass, "gravity", "I");
+  env->SetIntField(params, gravityField, 51); 
+  jfieldID flTopMargin = env->GetFieldID(flParamsClass, "topMargin", "I");
+  jfieldID flLeftMargin = env->GetFieldID(flParamsClass, "leftMargin", "I");
+  env->SetIntField(params, flTopMargin, 50);
+  env->SetIntField(params, flLeftMargin, 50);
+  jclass activityClass = env->FindClass("android/app/Activity");
+  jmethodID addContentView = env->GetMethodID(
+      activityClass, "addContentView",
+      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V");
+  env->CallVoidMethod(activity, addContentView, mainLayout, params);
+  env->DeleteLocalRef(mainLayout);
+  env->DeleteLocalRef(params);
+  jmethodID overlayViewCtor = env->GetMethodID(uiClasses.overlayClass, "<init>",
+                                               "(Landroid/content/Context;)V");
+  jobject overlay =
+      env->NewObject(uiClasses.overlayClass, overlayViewCtor, activity);
+  overlayView = env->NewGlobalRef(overlay);
+  jobject overlayParams = env->NewObject(flParamsClass, flParamsCtor, -1, -1);
+  env->CallVoidMethod(activity, addContentView, overlay, overlayParams);
+  env->DeleteLocalRef(overlay);
+  env->DeleteLocalRef(overlayParams);
+  {
+    jfloatArray emptyPts = env->NewFloatArray(0);
+    env->CallVoidMethod(overlayView, uiClasses.updateMultiPointsMethod, emptyPts);
+    env->DeleteLocalRef(emptyPts);
+  }
+  std::thread([]() { getCachedNtpTime(); }).detach();
+  installFreeHooks();
+  if (g_freeMode) {
+    return;
+  }
+  std::thread hookingThread([]() {
+    JNIEnv *env;
+    if (javaVM->AttachCurrentThread(&env, nullptr) != JNI_OK)
+      return;
+    uintptr_t base = 0;
+    while (base == 0) {
+      base = get_lib_addr(decryptStr(ENC_IL2CPP_SO, sizeof(ENC_IL2CPP_SO)).c_str());
+      if (base == 0)
+        sleep(1);
+    }
+    il2cppBase = base;
+    GetMainCamera_func = (GetMainCamera_t)(base + getRVA(ENC_RVA_GET_MAIN_CAMERA));
+    WorldToScreenPoint_func =
+        (WorldToScreenPoint_t)(base + getRVA(ENC_RVA_WORLD_TO_SCREEN_POINT));
+    GetPixelHeight_func = (GetPixelHeight_t)(base + getRVA(ENC_RVA_GET_PIXEL_HEIGHT));
+    GetPositionAndRotation_func =
+        (GetPositionAndRotation_t)(base + getRVA(ENC_RVA_GET_POS_ROT));
+    Il2cppStringNew_func =
+        (Il2cppStringNew_t)dlsym(RTLD_DEFAULT, decryptStr(ENC_IL2CPP_STR_NEW, sizeof(ENC_IL2CPP_STR_NEW)).c_str());
+    if (!initDobbyHook()) return;
+    int r1 =
+        DobbyHook((void *)(base + getRVA(ENC_RVA_POWER_BAR_DRAGGED)),
+                  (void *)my_PowerBarDragged, (void **)&orig_PowerBarDragged);
+    if (r1 == 0)
+      updateTextView(env, powerTextView, decryptStr(ENC_POWER, sizeof(ENC_POWER)).c_str());
+    int r2 = DobbyHook((void *)(base + getRVA(ENC_RVA_ROTATE_CUE)), (void *)my_RotateCue,
+                       (void **)&orig_RotateCue);
+    DobbyHook((void *)(base + getRVA(ENC_RVA_POOL_UPDATE)),
+              (void *)my_PoolUpdate, (void **)&orig_PoolUpdate);
+    int r3 = DobbyHook((void *)(base + getRVA(ENC_RVA_APPLY_SPIN)), (void *)my_ApplySpin,
+                       (void **)&orig_ApplySpin);
+    fetchRemoteSeeds();
+    int r4 = DobbyHook((void *)(base + getRemoteRVA(ENC_REMOTE_POOL_SIMULATE)),
+                       (void *)my_PoolSimulate, (void **)&orig_PoolSimulate);
+    int r_bih1 =
+        DobbyHook((void *)(base + getRVA(ENC_RVA_BIH_LATEUPDATE)),
+                  (void *)my_BIH_LateUpdate, (void **)&orig_BIH_LateUpdate);
+    int r_bih2 =
+        DobbyHook((void *)(base + getRVA(ENC_RVA_DROP_BALL_FROM_HAND)),
+                  (void *)my_DropBallFromHand, (void **)&orig_DropBallFromHand);
+    int r5 = DobbyHook((void *)(base + getRVA(ENC_RVA_SET_LAST_LOCAL_SHOT_INFO)),
+                       (void *)my_SetLastLocalShotInfo,
+                       (void **)&orig_SetLastLocalShotInfo);
+    DobbyHook((void *)(base + getRVA(ENC_RVA_TRICKSHOT_ONSTATECHANGE)),
+              (void *)my_TrickShotOnStateChange,
+              (void **)&orig_TrickShotOnStateChange);
+    DobbyHook((void *)(base + kRvaJTokenValueFloat),
+              (void *)my_JTokenValueFloat,
+              (void **)&orig_JTokenValueFloat);
+    RustBridgeSimulatePool_func =
+        (RustBridgeSimulatePool_t)(base + getRemoteRVA(ENC_REMOTE_RUSTBRIDGE_SIMULATE_POOL));
+    int r6 = DobbyHook((void *)(base + getRemoteRVA(ENC_REMOTE_RUSTBRIDGE_SIMULATE_POOL)),
+                       (void *)my_RustBridgeSimulatePool,
+                       (void **)&orig_RustBridgeSimulatePool);
+    int rSI = DobbyHook((void *)(base + getRemoteRVA(ENC_REMOTE_SHOOTIT_SIMULATE)),
+                        (void *)my_SimulateShootIt,
+                        (void **)&orig_SimulateShootIt);
+    int rSICtrl = DobbyHook((void *)(base + getRemoteRVA(ENC_REMOTE_SHOOTIT_CONTROLLER_INPUT)),
+                            (void *)my_OnControllerInputUpdate,
+                            (void **)&orig_OnControllerInputUpdate);
+    g_cachedBssShootitClassRef = getRemoteRVA(ENC_REMOTE_BSS_SHOOTIT_CLASS_REF);
+    GetMyPlayerIndex_func = (GetMyPlayerIndex_t)(base + getRemoteRVA(ENC_REMOTE_SHOOTIT_MYPLAYER_GET));
+    GameStoreRead_func = (GameStoreRead_t)(base + getRVA(ENC_RVA_GAMESTORE_READ));
+    JTokenValueString_func =
+        (JTokenValueString_t)(base + getRVA(ENC_RVA_JTOKEN_VALUE_STRING));
+    g_cachedBssCipherKlass     = getRemoteRVA(ENC_REMOTE_BSS_CIPHER_KLASS);
+    g_cachedBssByteArrayKlass  = getRemoteRVA(ENC_REMOTE_BSS_BYTE_ARRAY_KLASS);
+    g_cachedBssKeyFormatSecret = getRemoteRVA(ENC_REMOTE_BSS_KEY_FORMAT_SECRET);
+    g_cachedBssKeyTurn         = getRemoteRVA(ENC_REMOTE_BSS_KEY_TURN);
+    JTokenValueInt_func = (JTokenValueInt_t)(base + getRVA(ENC_RVA_JTOKEN_VALUE_INT));
+    Il2cppObjectNew_func = (Il2cppObjectNew_t)(base + getRVA(ENC_RVA_IL2CPP_OBJECT_NEW));
+    Il2cppArrayNew_func = (Il2cppArrayNew_t)(base + getRVA(ENC_RVA_IL2CPP_ARRAY_NEW));
+    CipherSeed_func = (CipherSeed_t)(base + getRemoteRVA(ENC_REMOTE_RVA_CIPHER_SEED));
+    CipherEncrypt_func = (CipherEncrypt_t)(base + getRemoteRVA(ENC_REMOTE_RVA_CIPHER_ENCRYPT));
+    GetCuePower_func     = (GetCueFloat_t)(base + getRVA(ENC_RVA_GET_CUE_POWER));
+    GetCueSpin_func      = (GetCueFloat_t)(base + getRVA(ENC_RVA_GET_CUE_SPIN));
+    GetMaxMasseAngle_func = (GetCueFloat_t)(base + getRVA(ENC_RVA_GET_MAX_MASSE));
+    CueSetRayDirection_func =
+        (CueSetRayDirection_t)(base + getRVA(ENC_RVA_CUE_SET_RAY_DIRECTION));
+    int rGid = DobbyHook(
+        (void *)(base + getRVA(ENC_RVA_GAMESTORE_GAMEID)),
+        (void *)+[](void *mi) -> uint64_t {
+          uint64_t x0 = orig_GameStoreGameID(mi);
+          uint64_t x1_val = 0;
+#if defined(__aarch64__)
+          __asm__ volatile("mov %0, x1" : "=r"(x1_val));
+#endif
+          uint32_t newGid = 0;
+          if (x0 == 1 && x1_val > 100) {
+            newGid = (uint32_t)x1_val;
+          } else if (x0 > 100) {
+            newGid = (uint32_t)x0;
+          }
+          if (newGid > 0) {
+            if (!hasGameId) {
+              capturedGameId = newGid;
+              hasGameId = true;
+            } else if (newGid != capturedGameId) {
+              capturedGameId = newGid;
+              hasGhostData = false;
+              memset(ghostKeystream, 0, sizeof(ghostKeystream));
+              memset(ghostOrigEncBytes, 0, sizeof(ghostOrigEncBytes));
+              localShotPending = false;
+              localShotJustFired = false;
+              keystreamJustDerived = false;
+              lastCapturedShotInfo.valid = false;
+              {
+                std::lock_guard<std::mutex> lock(blobMutex);
+                hasRustBridgeData = false;
+                blobIsFromOurShot = false;
+                capturedRustBridgeLen = 0;
+                shotInfoMsgpackOffset = -1;
+                shotInfoSectionEnd = -1;
+              }
+              cachedEncProps.clear();
+              cachedSignature.clear();
+              lastPropsReadMs = 0;
+              hasSavedCueBallPos = false;
+              savedTableWorldY = 0.0f;
+              lastPower = -1.0f;
+              resetCachedSpinState(true);
+              if (!g_shootitReady) {
+                std::lock_guard<std::mutex> lock(trajectoryMutex);
+                cachedTrajectoryScreenCoords.clear();
+                hasNewTrajectory = true;
+              }
+            }
+          } else if (hasGameId) {
+            hasGameId = false;
+            capturedGameId = 0;
+            hasGhostData = false;
+            hasRustBridgeData = false;
+            resetCachedSpinState(true);
+            if (!g_shootitReady) {
+              std::lock_guard<std::mutex> lock(trajectoryMutex);
+              cachedTrajectoryScreenCoords.clear();
+              hasNewTrajectory = true;
+              pushTrajectoryToOverlay();
+            }
+          }
+          return x0;
+        },
+        (void **)&orig_GameStoreGameID);
+    int rClear = DobbyHook(
+        (void *)(base + getRemoteRVA(ENC_REMOTE_CLEARGS)),
+        (void *)+[]() {
+          if (orig_ClearGS) orig_ClearGS();
+          bool shouldClearLines = false;
+          if (g_waitingToClearLines) {
+            g_clearGSCountAfterLocalShot++;
+            if (g_clearGSCountAfterLocalShot >= 3) {
+              shouldClearLines = true;
+              g_waitingToClearLines = false;
+              g_clearGSCountAfterLocalShot = 0;
+            }
+          } else if (!g_shootitReady) {
+            shouldClearLines = true;
+          }
+          if (shouldClearLines) {
+            {
+              std::lock_guard<std::mutex> lock(trajectoryMutex);
+              cachedTrajectoryScreenCoords.clear();
+              hasNewTrajectory = true;
+            }
+            pushTrajectoryToOverlay();
+          }
+          hasGameId = false;
+          capturedGameId = 0;
+          hasGhostData = false;
+          lastCapturedShotInfo.valid = false;
+          localShotPending = false;
+          localShotJustFired = false;
+          keystreamJustDerived = false;
+          {
+            std::lock_guard<std::mutex> lock(blobMutex);
+            hasRustBridgeData = false;
+            blobIsFromOurShot = false;
+            capturedRustBridgeLen = 0;
+            shotInfoMsgpackOffset = -1;
+            shotInfoSectionEnd = -1;
+          }
+          cachedEncProps.clear();
+          cachedSignature.clear();
+          lastPropsReadMs = 0;
+          hasSavedCueBallPos = false;
+          savedTableWorldY = 0.0f;
+          lastPower = -1.0f;
+          resetCachedSpinState(true);
+        },
+        (void **)&orig_ClearGS);
+    savePrologue((void *)(base + getRVA(ENC_RVA_POWER_BAR_DRAGGED)));
+    savePrologue((void *)(base + getRemoteRVA(ENC_REMOTE_POOL_SIMULATE)));
+    savePrologue((void *)(base + getRemoteRVA(ENC_REMOTE_RUSTBRIDGE_SIMULATE_POOL)));
+    savePrologue((void *)(base + getRVA(ENC_RVA_SET_LAST_LOCAL_SHOT_INFO)));
+    storeRemoteSeed(0);
+    sealCachedAddresses();
+    startFridaWatchdog();
+    startRemoteSeedRefresh(); 
+    javaVM->DetachCurrentThread();
+  });
+  hookingThread.detach();
+}
+static const jint BALL_COLORS[] = {
+    (jint)0xFFFFFFFF, 
+    (jint)0xFFFFC300, 
+    (jint)0xFF1565C0, 
+    (jint)0xFFD50000, 
+    (jint)0xFF7B1FA2, 
+    (jint)0xFFFF6D00, 
+    (jint)0xFF2E7D32, 
+    (jint)0xFF880E4F, 
+    (jint)0xFF000000, 
+    (jint)0xFFFFC300, 
+    (jint)0xFF1565C0, 
+    (jint)0xFFD50000, 
+    (jint)0xFF7B1FA2, 
+    (jint)0xFFFF6D00, 
+    (jint)0xFF2E7D32, 
+    (jint)0xFF880E4F, 
+};
+static jint getBallColor(int idx) {
+  if (idx == 200) return (jint)0xFFFFFFFF; 
+  if (idx == 201) return (jint)0xFF1565C0; 
+  if (idx == 202) return (jint)0xFFD50000; 
+  if (idx == 210) return (jint)0xFF808080; 
+  if (idx == 211) return (jint)0xFFFFFFFF; 
+  if (idx == 212) return (jint)0xFF00FF00; 
+  return (idx >= 0 && idx < 16) ? BALL_COLORS[idx] : (jint)0xFFFFFFFF;
+}
+static jobject g_drawPaint = nullptr;
+static jmethodID g_drawLineMethod = nullptr;
+static jmethodID g_drawCircleMethod = nullptr;
+static jmethodID g_setColorMethod = nullptr;
+static jmethodID g_setStyleMethod = nullptr;
+static jobject g_strokeStyle = nullptr;
+static jobject g_fillStyle = nullptr;
+static jmethodID g_drawTextMethod = nullptr;
+static jmethodID g_setTextSizeMethod = nullptr;
+extern "C" JNIEXPORT void JNICALL
+Java_com_google_firebase_RenderSurfaceView_nativeOnDraw(
+    JNIEnv *env, [[maybe_unused]] jobject thiz, jobject canvas,
+    jfloatArray points) {
+  {
+    std::lock_guard<std::mutex> lock(g_uiTextMutex);
+    if (g_dirtyPower && powerTextView) {
+      jstring s = env->NewStringUTF(g_pendingPowerText.c_str());
+      env->CallVoidMethod(powerTextView, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      g_dirtyPower = false;
+    }
+    if (g_dirtySpin && spinTextView) {
+      jstring s = env->NewStringUTF(g_pendingSpinText.c_str());
+      env->CallVoidMethod(spinTextView, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      g_dirtySpin = false;
+    }
+    if (g_dirtyDir && directionTextView) {
+      jstring s = env->NewStringUTF(g_pendingDirText.c_str());
+      env->CallVoidMethod(directionTextView, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      g_dirtyDir = false;
+    }
+    if (g_dirtyAlpha && alphaTextView) {
+      jstring s = env->NewStringUTF(g_pendingAlphaText.c_str());
+      env->CallVoidMethod(alphaTextView, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      g_dirtyAlpha = false;
+    }
+    if (g_dirtyPreviewPower && previewPowerTextView) {
+      jstring s = env->NewStringUTF(g_pendingPreviewPowerText.c_str());
+      env->CallVoidMethod(previewPowerTextView, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      g_dirtyPreviewPower = false;
+    }
+    if (g_dirtyTimer && g_timerTextView) {
+      jstring s = env->NewStringUTF(g_pendingTimerText.c_str());
+      env->CallVoidMethod(g_timerTextView, uiClasses.setText, s);
+      env->DeleteLocalRef(s);
+      g_dirtyTimer = false;
+    }
+    if (g_dirtyTimerColor && g_timerTextView) {
+      env->CallVoidMethod(g_timerTextView, uiClasses.setTextColor, g_pendingTimerColor);
+      g_dirtyTimerColor = false;
+    }
+  }
+  if (canvas == nullptr || points == nullptr)
+    return;
+  jsize len = env->GetArrayLength(points);
+  if (len < 4)
+    return;
+  if (g_drawPaint == nullptr) {
+    jclass paintClass = env->FindClass("android/graphics/Paint");
+    jmethodID paintCtor = env->GetMethodID(paintClass, "<init>", "()V");
+    jmethodID setStrokeWidth =
+        env->GetMethodID(paintClass, "setStrokeWidth", "(F)V");
+    jmethodID setAntiAlias =
+        env->GetMethodID(paintClass, "setAntiAlias", "(Z)V");
+    g_setColorMethod = env->GetMethodID(paintClass, "setColor", "(I)V");
+    g_setStyleMethod = env->GetMethodID(paintClass, "setStyle",
+                                        "(Landroid/graphics/Paint$Style;)V");
+    jobject paint = env->NewObject(paintClass, paintCtor);
+    env->CallVoidMethod(paint, setStrokeWidth, 4.0f);
+    env->CallVoidMethod(paint, setAntiAlias, (jboolean)JNI_TRUE);
+    jclass styleClass = env->FindClass("android/graphics/Paint$Style");
+    jfieldID strokeField = env->GetStaticFieldID(
+        styleClass, "STROKE", "Landroid/graphics/Paint$Style;");
+    g_strokeStyle =
+        env->NewGlobalRef(env->GetStaticObjectField(styleClass, strokeField));
+    jfieldID fillField = env->GetStaticFieldID(
+        styleClass, "FILL", "Landroid/graphics/Paint$Style;");
+    g_fillStyle =
+        env->NewGlobalRef(env->GetStaticObjectField(styleClass, fillField));
+    env->CallVoidMethod(paint, g_setStyleMethod, g_strokeStyle);
+    jmethodID setStrokeCap = env->GetMethodID(
+        paintClass, "setStrokeCap", "(Landroid/graphics/Paint$Cap;)V");
+    jclass capClass = env->FindClass("android/graphics/Paint$Cap");
+    jfieldID roundField = env->GetStaticFieldID(capClass, "ROUND",
+                                                "Landroid/graphics/Paint$Cap;");
+    jobject roundCap = env->GetStaticObjectField(capClass, roundField);
+    env->CallVoidMethod(paint, setStrokeCap, roundCap);
+    g_drawPaint = env->NewGlobalRef(paint);
+    env->DeleteLocalRef(paint);
+    jclass canvasClass = env->FindClass("android/graphics/Canvas");
+    g_drawLineMethod = env->GetMethodID(canvasClass, "drawLine",
+                                        "(FFFFLandroid/graphics/Paint;)V");
+    g_drawCircleMethod = env->GetMethodID(canvasClass, "drawCircle",
+                                          "(FFFLandroid/graphics/Paint;)V");
+    g_drawTextMethod = env->GetMethodID(canvasClass, "drawText",
+                                        "(Ljava/lang/String;FFLandroid/graphics/Paint;)V");
+    g_setTextSizeMethod = env->GetMethodID(paintClass, "setTextSize", "(F)V");
+  }
+  jfloat *pts = env->GetFloatArrayElements(points, nullptr);
+  if (pts == nullptr)
+    return;
+  jsize i = 0;
+  while (i < len) {
+    if (pts[i] == DIST_MARKER && i + 3 < len) {
+      float sx = pts[i + 1];   
+      float sy = pts[i + 2];   
+      double dist = g_lastTrickShotDistanceDisplay.load(std::memory_order_relaxed);
+      if (!std::isfinite(dist) || dist >= 1e8)
+        dist = (double)pts[i + 3];
+      i += 4;
+      if (g_drawTextMethod && g_setTextSizeMethod) {
+        char distStr[20];
+        snprintf(distStr, sizeof(distStr), "%.9f", dist);
+        jstring jDistStr = env->NewStringUTF(distStr);
+        env->CallVoidMethod(g_drawPaint, g_setTextSizeMethod, 40.0f);
+        env->CallVoidMethod(g_drawPaint, g_setStyleMethod, g_fillStyle);
+        env->CallVoidMethod(g_drawPaint, g_setColorMethod, (jint)0xFFFFFFFF);
+        env->CallVoidMethod(canvas, g_drawTextMethod, jDistStr,
+                            sx + 15.0f, sy - 25.0f, g_drawPaint);
+        env->DeleteLocalRef(jDistStr);
+      }
+      continue;
+    }
+    if (pts[i] == BALL_MARKER && i + 2 < len) {
+      int ballIndex = static_cast<int>(pts[i + 1]);
+      float screenRadius = pts[i + 2];
+      jint color = getBallColor(ballIndex);
+      jint alphaColor = (color & 0x00FFFFFF) | (((jint)lineAlpha & 0xFF) << 24);
+      env->CallVoidMethod(g_drawPaint, g_setColorMethod, alphaColor);
+      i += 3; 
+      env->CallVoidMethod(g_drawPaint, g_setStyleMethod, g_strokeStyle);
+      float lastX = 0, lastY = 0;
+      bool hasPoints = false;
+      while (i + 1 < len && pts[i] != BALL_MARKER && pts[i] != DIST_MARKER) {
+        lastX = pts[i];
+        lastY = pts[i + 1];
+        hasPoints = true;
+        if (i + 3 < len && pts[i + 2] != BALL_MARKER && pts[i + 2] != DIST_MARKER) {
+          env->CallVoidMethod(canvas, g_drawLineMethod, pts[i], pts[i + 1],
+                              pts[i + 2], pts[i + 3], g_drawPaint);
+        }
+        i += 2;
+      }
+      if (hasPoints) {
+        bool isStripe = (ballIndex >= 9 && ballIndex <= 15) && (ballIndex < 200);
+        env->CallVoidMethod(g_drawPaint, g_setStyleMethod,
+                            isStripe ? g_strokeStyle : g_fillStyle);
+        env->CallVoidMethod(g_drawPaint, g_setColorMethod, alphaColor);
+        env->CallVoidMethod(canvas, g_drawCircleMethod, lastX, lastY,
+                            screenRadius, g_drawPaint);
+      }
+    } else {
+      i++; 
+    }
+  }
+  env->ReleaseFloatArrayElements(points, pts, 0);
+}
+JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
+  javaVM = vm;
+  if (checkLoadedLibraries()) {
+    crashNow();
+  }
+  return JNI_VERSION_1_6;
+}
