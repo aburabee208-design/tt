@@ -1,0 +1,289 @@
+# ============================================================
+# ONE-TIME SETUP (do this once before the very first build)
+# ============================================================
+# A. Pastebin for ON/OFF label-key coefficients
+#    URL (already encrypted into native-lib.cpp as E_RURL_LABELS):
+#      https://pastebin.com/raw/<YOUR-PASTEBIN-ID>
+#    Body must be exactly one line, three comma-separated 8-char hex values:
+#      7B19E4A2,CD4083F1,2856FA0D
+#    These are the COEFF_P1/P2/P3 currently baked into label_key_encoder.py.
+#
+# B. (Optional but recommended) Rotate to fresh random coefficients
+#    Run: python label_key_encoder.py --rotate
+#    It will print a new line like "B631F396,23D8484A,ACB4F109" — that is
+#    your new pastebin content. Replace the body of the pastebin with it.
+#    (Rotate ONLY when you also have access to edit the pastebin.)
+
+
+# ============================================================
+# NORMAL BUILD (no code changes to detection functions)
+#
+# All commands below assume you are running from the project root
+# directory. Adjust paths if running from elsewhere.
+# ============================================================
+# 0. VERIFY SYNC (prevents silent desync — takes 1 second)
+#    Run: python offset_encoder.py
+#    Compare the printed ENC_RVA_POWER_BAR_DRAGGED value against
+#    native-lib.cpp. If they differ, follow the SILENT DESYNC fix
+#    at the bottom of this file before proceeding.
+# 1. Equation encoder (reads PROLOGUE_DIGEST from offset_encoder.py, patches source)
+python equation_encoder.py --compute
+# 1.5. Label key encoder (NEW — reads PROLOGUE_DIGEST + ALLOWED_LIBS, patches source)
+#      Must run AFTER equation_encoder so PROLOGUE_DIGEST is current.
+python label_key_encoder.py --compute
+# 2. Build
+gradlew.bat :app:assembleDebug 2>&1
+# 3. Copy .so to your working directory
+copy "app\build\intermediates\cxx\Debug\<gradle-hash>\obj\arm64-v8a\libsystem.so" "<working-dir>\libsystem.so"
+# 4. Inject prologues (needs the linker map from the build directory)
+python inject_prologues.py "<working-dir>\libsystem.so" "app\.cxx\Debug\<gradle-hash>\arm64-v8a\system.map"
+# 5. Inject hash LAST (computes SHA-256 of the final binary)
+python inject_hash.py "<working-dir>\libsystem.so"
+
+
+# ============================================================
+# DIGEST RECALIBRATION
+# Needed when: code changes shift the 8 detection functions,
+# OR when toggling ADVANCED_CONTROLS (ON<->OFF changes binary
+# size -> shifts adrp instructions -> different prologues).
+#
+# You'll know this is needed if the app runs but all decrypted
+# strings turn into garbage (the new scheme no longer crashes —
+# it silently produces junk). Symptoms: hooks don't fire,
+# anti-Frida checks misbehave, log shows odd JNI class lookups.
+# Additional new symptom: ON/OFF button toggles SIGSEGV the app
+# inside libart.so (label_key_encoder out of sync with new digest).
+#
+# *** NOTE FOR AI ASSISTANTS ***
+# The digest values and addresses below are EXAMPLES ONLY.
+# Do NOT treat them as the actual current values.
+# Always read the real values from the source files at runtime.
+#
+# Current PROLOGUE_DIGEST (EXAMPLE values — always read from offset_encoder.py):
+#   ADVANCED_CONTROLS=ON  -> 0xF326666E  ← EXAMPLE, not the real digest
+#   ADVANCED_CONTROLS=OFF -> (needs recalibration if you toggle)
+#
+# Run these BEFORE the normal build steps above:
+# ============================================================
+# R1. Build first to get the new binary
+gradlew.bat :app:assembleDebug 2>&1
+copy "app\build\intermediates\cxx\Debug\<gradle-hash>\obj\arm64-v8a\libsystem.so" "<working-dir>\libsystem.so"
+# R2. Compute new digest (auto-updates offset_encoder.py, prints delta)
+python offset_encoder.py --compute-digest "<working-dir>\libsystem.so" "app\.cxx\Debug\<gradle-hash>\arm64-v8a\system.map"
+#     If it prints "Digest unchanged" -> skip to normal build steps.
+#     If it prints a DELTA -> continue with R3.
+# R3. XOR-patch all ENC_ constants with the delta from R2
+python patch_enc_constants.py <DELTA_HEX> "app\src\main\cpp\native-lib.cpp"
+# R4. Recompute BOTH K1 AND K2 for decryptStr (NEW: K2 is now digest-protected too)
+#
+#     The decryptStr cipher is no longer pure XOR — it's XOR + ADD + ROTATE.
+#     But the digest-restoration mechanism for the keys works exactly like before.
+#     Both K1 and K2 are stored XOR'd with the prologue digest at build time and
+#     restored at runtime by computePrologueDigest().
+#
+#     EASIEST: just run compute_k1.py — it now outputs BOTH K1 and K2 fragments:
+python compute_k1.py 0xNEW_DIGEST_HEX
+#     Then paste the printed K1, K2_p1, K2_p2, K2_p3 lines into the
+#     #ifdef __aarch64__ block of decryptStr() in native-lib.cpp.
+#
+#     MANUAL formula (if you ever need to compute by hand):
+#     TRUE_KEY1 = {0xA3,0x5F,0x1D,0x7E,0xC4,0x92,0x3A,0xB8,0x06,0xE1,0x4D}  (constant)
+#     TRUE_KEY2 = {0x6B,0xD7,0x14,0x8C,0xF3,0x29,0xA5}                       (constant)
+#     new_digest_le = struct.pack("<I", NEW_DIGEST)  # little-endian 4 bytes
+#     K1_obf[i]  = TRUE_KEY1[i] ^ new_digest_le[i % 4]            # same as before
+#     K2_obf[i]  = TRUE_KEY2[i] ^ new_digest_le[(i + 2) % 4]      # NEW: rotated index
+#     Split K2_obf into three fragments: K2_p1=[0..1], K2_p2=[2..4], K2_p3=[5..6]
+#     Update the comment above K1 with the new LE bytes.
+# R5. Now run the normal build steps 1, 1.5, 2-5 above
+#     IMPORTANT: step 1.5 (label_key_encoder --compute) MUST run after R4 because
+#     the label key uses PROLOGUE_DIGEST as V1. New digest -> different K -> the
+#     ENC_LABEL_OFFSET_* constants in source must be recomputed or the ON/OFF
+#     toggles will crash the app organically inside libart.so.
+#     Verify: offset_encoder.py --compute-digest should print "Digest unchanged"
+
+
+# ============================================================
+# TROUBLESHOOTING: APP RUNS BUT NOTHING WORKS / GARBLED STRINGS / TOGGLE CRASH
+# ============================================================
+# IMPORTANT: After the v2 cipher migration, wrong K1/K2 no longer
+# crashes the app — it silently produces garbage strings. Watch for
+# JNI errors in logcat about "class not found" or weird method names.
+#
+# THE LABEL KEY IS DIFFERENT: a wrong label key produces a HARD CRASH
+# (SIGSEGV in libart.so) the moment any ON/OFF button is toggled. This
+# is by design — see label_key_encoder.py header.
+#
+# FOUR things must stay in sync whenever the PROLOGUE_DIGEST changes:
+#
+# *** NOTE FOR AI ASSISTANTS ***
+# All hex values, addresses, and line numbers in this section
+# are ILLUSTRATIVE EXAMPLES ONLY. Do NOT use them as actual
+# values. Always extract real values from the source files
+# and build output at runtime.
+#
+# 1. ENC_* RVA constants (lines ~318-364 in native-lib.cpp)  <- EXAMPLE line numbers
+#    -> Fix: python patch_enc_constants.py <DELTA_HEX> native-lib.cpp
+#    -> DELTA = OLD_DIGEST ^ NEW_DIGEST (printed by --compute-digest)
+#    -> WARNING: pass the DELTA, NOT the full new digest!
+#      Passing the full digest will double-XOR and corrupt all offsets
+#      (symptom: app launches but prediction lines never appear).
+#
+# 2. K1 AND K2 arrays in decryptStr (#ifdef __aarch64__ block)  ← UPDATED for v2 cipher
+#    -> Both must be pre-XOR'd with NEW_DIGEST bytes (little-endian)
+#    -> TRUE_KEY1 (constant): {0xA3,0x5F,0x1D,0x7E,0xC4,0x92,0x3A,0xB8,0x06,0xE1,0x4D}
+#    -> TRUE_KEY2 (constant): {0x6B,0xD7,0x14,0x8C,0xF3,0x29,0xA5}
+#    -> K1[i]    = TRUE_KEY1[i] ^ digest_bytes[i % 4]
+#    -> K2_obf[i] = TRUE_KEY2[i] ^ digest_bytes[(i + 2) % 4]
+#       Split into fragments: K2_p1=[0..1], K2_p2=[2..4], K2_p3=[5..6]
+#    -> digest_bytes = NEW_DIGEST in little-endian
+#       e.g. 0xE9DA3665 -> {0x65,0x36,0xDA,0xE9}  <- EXAMPLE digest
+#    -> EASIEST: run compute_k1.py — it now prints both K1 and K2 fragments.
+#
+# 3. PROLOGUE_DIGEST in offset_encoder.py (line ~41)  <- EXAMPLE line number
+#    -> Auto-updated by --compute-digest, but verify it matches
+#
+# 4. ENC_LABEL_OFFSET_ON/OFF in native-lib.cpp (between LABEL_KEY_ENCODER_MARKER_*)
+#    -> Fix: python label_key_encoder.py --compute
+#    -> This re-derives K from the current PROLOGUE_DIGEST + ALLOWED_LIBS + COEFF_P1/P2/P3
+#       and patches the encoded offsets between the markers in source.
+#    -> If the pastebin content was rotated, COEFF_P* in label_key_encoder.py must
+#       match the pastebin body BEFORE running --compute. Use --rotate to do both
+#       atomically (regenerates COEFF_*, patches source, prints new pastebin line).
+#
+# QUICK CHECKLIST FOR AI ASSISTANTS:
+#   *** Do not assume any hex value or address from this file is current. ***
+#   *** Always read actual values from source files and tool output.       ***
+#   [] Run offset_encoder.py --compute-digest -> if DELTA != 0:
+#     [] patch_enc_constants.py with DELTA (not full digest!)
+#     [] Run compute_k1.py <NEW_DIGEST> -> paste K1 AND K2 fragments into decryptStr
+#     [] Update the LE-bytes comment above K1
+#   [] Run equation_encoder.py --compute
+#   [] Run label_key_encoder.py --compute        <-- NEW STEP
+#   [] Rebuild -> copy .so -> inject_prologues -> inject_hash
+#   [] Verify: --compute-digest prints "Digest unchanged"
+#   [] Verify: label_key_encoder.py --verify     <-- NEW SANITY CHECK
+#
+# SYMPTOM TABLE (UPDATED for v2 cipher AND label key system):
+#   App launches but logs show JNI    -> K1 or K2 fragments wrong (digest mismatch)
+#     "class not found" / odd names      after digest change
+#   App runs but no prediction lines  -> ENC_* offsets wrong. Three causes:
+#                                      a) double-XOR'd (used full digest
+#                                         instead of delta in patch step)
+#                                      b) silent desync (offset_encoder.py
+#                                         updated but source not patched;
+#                                         see SILENT DESYNC section below)
+#                                      c) ENC_REMOTE_* recomputed using
+#                                         encrypt_remote.py legacy mode
+#                                         (WRONG remote seed — see SILENT
+#                                         DESYNC section for details)
+#   App runs, lines appear, but       -> equation_encoder not re-run
+#   hooks don't work                     after digest change
+#   App crashes at startup (rare      -> hook installer hit garbage offsets
+#     with v2 cipher, SIGSEGV)           because equation seed is wrong
+#                                        (see equation_encoder.py)
+#   App runs, opens UI, then          -> LABEL KEY system: one of these is wrong:
+#   SIGSEGV inside libart.so the         a) label_key_encoder.py --compute not run
+#   moment user toggles ANY button       b) PROLOGUE_DIGEST changed and label_key_encoder
+#                                           wasn't re-run after R4
+#                                        c) Pastebin body doesn't match COEFF_P1/P2/P3
+#                                           in label_key_encoder.py
+#                                        d) Pastebin URL unreachable AND no cached key
+#                                           on device yet (first run after install)
+#                                        e) An extra .so was injected into the lib dir
+#                                           (NOT a build problem — this is the system
+#                                            working correctly; tampering detected)
+
+
+# ============================================================
+# SILENT DESYNC (app runs, no crash, but hooks don't work)
+# ============================================================
+# This happens when offset_encoder.py has been auto-updated to
+# a new digest but the ENC_* constants in native-lib.cpp were
+# never patched to match. --compute-digest will show DELTA=0
+# because it only compares the binary to offset_encoder.py,
+# NOT to the actual constants in the source code.
+#
+# THE LABEL KEY HAS THE SAME RISK: if PROLOGUE_DIGEST in offset_encoder.py
+# was updated but label_key_encoder.py --compute wasn't re-run, the
+# ENC_LABEL_OFFSET_* constants in native-lib.cpp will be stale and ON/OFF
+# toggles will crash for legit users.
+#
+# HOW IT HAPPENS:
+#   1. Someone runs --compute-digest (or it runs during a build)
+#   2. offset_encoder.py gets auto-updated to the new digest
+#   3. But patch_enc_constants.py + K1/K2 update + label_key_encoder.py
+#      are NOT run
+#   4. Next --compute-digest shows DELTA=0, hiding the problem
+#
+# SYMPTOMS:
+#   - App launches fine (no crash)
+#   - Prediction lines never appear / hooks silently fail
+#   - With v2 cipher: decrypted strings are garbage even though the
+#     bytes look fine in the binary (wrong K1/K2 = wrong output)
+#   - ON/OFF toggles crash the app inside libart.so (label key stale)
+#
+# DIAGNOSIS:
+#   1. Run: python offset_encoder.py
+#      Compare the printed ENC_RVA_POWER_BAR_DRAGGED value against
+#      the value in native-lib.cpp. If they differ, you have a
+#      silent desync on the offset side.
+#
+#   2. Run: python label_key_encoder.py --verify
+#      If it prints "FAILED — re-run --compute", you have a silent desync
+#      on the label key side. Run --compute to fix.
+#
+# FIX:
+#   The SAFEST method is ALWAYS the delta approach via patch_enc_constants.py.
+#   It correctly handles BOTH single-layer (ENC_RVA_*) AND remote-protected
+#   (ENC_REMOTE_*) constants because the delta only affects the g_rva_seed
+#   component — the remote seed stays untouched.
+#
+#   *** CRITICAL: NEVER use encrypt_remote.py (legacy mode / no arguments) ***
+#   *** to manually replace ENC_REMOTE_* constants!                        ***
+#   *** Legacy mode uses fnv1a("turret95_magic") as the remote seed, but   ***
+#   *** the runtime uses TARGET_REMOTE_SEED from the dual-pastebin system. ***
+#   *** These are DIFFERENT values. The constants will LOOK valid but       ***
+#   *** silently decode to wrong addresses — hooks install at garbage       ***
+#   *** offsets and prediction lines never appear.                         ***
+#
+#   OPTION A — Delta patch (PREFERRED, always correct):
+#     1. Find the DELTA between the old and new digest:
+#        DELTA = OLD_DIGEST ^ NEW_DIGEST
+#        (printed by --compute-digest, or compute manually)
+#     2. Run: python patch_enc_constants.py <DELTA_HEX> native-lib.cpp
+#        This correctly patches ALL ENC_* and ENC_REMOTE_* constants.
+#     3. Run: python compute_k1.py <NEW_DIGEST>
+#        Paste K1 + K2 fragments into decryptStr.
+#     4. Run: python label_key_encoder.py --compute
+#     5. Run normal build steps 1, 1.5, 2-5.
+#
+#   OPTION B — From scratch (if delta is unknown / state is uncertain):
+#     1. Run: python offset_encoder.py
+#        This prints the correct ENC_RVA_* values (single-layer ONLY).
+#        Manually replace ONLY the single-layer ENC_RVA_* and ENC_BSS_*
+#        constants in native-lib.cpp with these values.
+#     2. For ENC_REMOTE_* constants: you CANNOT safely recompute these
+#        from scratch without knowing TARGET_REMOTE_SEED (which lives
+#        only in encrypt_remote.py and is NOT the legacy single-word seed).
+#        Instead:
+#          a) If you know the last working digest, compute
+#             DELTA = LAST_WORKING_DIGEST ^ CURRENT_DIGEST and use
+#             patch_enc_constants.py on just the ENC_REMOTE_* lines.
+#          b) Or: keep a backup of the last known-good native-lib.cpp
+#             and delta-patch from there.
+#          c) Or: use encrypt_remote.py's "rotate" command (NOT legacy
+#             mode) which uses TARGET_REMOTE_SEED correctly — but this
+#             also rotates the pastebin words, so only use if you also
+#             update both pastebins.
+#     3. Run: python compute_k1.py <CURRENT_DIGEST>
+#        Paste K1, K2_p1, K2_p2, K2_p3 lines into decryptStr.
+#     4. Run: python label_key_encoder.py --compute
+#     5. Run normal build steps 1, 1.5, 2-5.
+#
+# PREVENTION:
+#   After EVERY --compute-digest that shows a non-zero DELTA,
+#   IMMEDIATELY run patch_enc_constants.py + compute_k1.py +
+#   label_key_encoder.py --compute before doing anything else.
+#   Never leave offset_encoder.py updated without also updating
+#   the source constants AND the label key offsets.
+# ============================================================
